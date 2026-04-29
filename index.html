@@ -771,7 +771,119 @@ function showPage(page) {
 function globalSearch(q) { /* wired up in later pieces */ }
 
 // Stub page builders — replaced piece by piece
-function bDashboard()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">🏠</div><p>Dashboard coming in Piece 3</p></div>'; }
+async function bDashboard() {
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading…</p></div>`;
+
+  const today = new Date().toISOString().slice(0,10);
+
+  const [custRes, woRes, estRes] = await Promise.all([
+    DB.from('fp_customers').select('id, first_name, last_name, company, phone, created_at').order('created_at', {ascending:false}).limit(5),
+    DB.from('fp_work_orders').select('*').order('created_at', {ascending:false}).limit(50),
+    DB.from('fp_estimates').select('id, status').limit(200)
+  ]);
+
+  const customers  = custRes.data  || [];
+  const workOrders = woRes.data    || [];
+  const estimates  = estRes.data   || [];
+
+  const todayJobs   = workOrders.filter(w => w.scheduled_date === today).length;
+  const openWOs     = workOrders.filter(w => !['Completed','Cancelled'].includes(w.status)).length;
+  const openEsts    = estimates.filter(e => ['Draft','Sent'].includes(e.status)).length;
+  const todayWOs    = workOrders.filter(w => w.scheduled_date === today);
+
+  const woBadge = s => {
+    const map = { Scheduled:'badge-blue', 'In Progress':'badge-orange', Completed:'badge-green', Cancelled:'badge-gray', 'On Hold':'badge-gray' };
+    return `<span class="badge ${map[s]||'badge-gray'}">${esc(s)}</span>`;
+  };
+
+  pc.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-card orange">
+        <div class="stat-label">Today's Jobs</div>
+        <div class="stat-value">${todayJobs}</div>
+        <div class="stat-sub">Scheduled for today</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Open Work Orders</div>
+        <div class="stat-value">${openWOs}</div>
+        <div class="stat-sub">Active jobs</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Open Estimates</div>
+        <div class="stat-value">${openEsts}</div>
+        <div class="stat-sub">Draft or sent</div>
+      </div>
+      <div class="stat-card gray">
+        <div class="stat-label">Total Customers</div>
+        <div class="stat-value" id="dash-cust-count">—</div>
+        <div class="stat-sub">In database</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <!-- Today's Schedule -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:700;color:var(--navy)">📅 Today's Schedule</div>
+          <button class="btn btn-sm btn-ghost" onclick="showPage('dispatch')">View Dispatch →</button>
+        </div>
+        ${todayWOs.length === 0
+          ? `<div class="empty-state" style="padding:24px"><p>No jobs scheduled today</p></div>`
+          : `<div class="table-wrap"><table>
+              <thead><tr><th>Job</th><th>Customer</th><th>Time</th><th>Status</th></tr></thead>
+              <tbody>${todayWOs.map(w=>`
+                <tr style="cursor:pointer" onclick="showPage('workorders')">
+                  <td><strong>${esc(w.wo_number)}</strong><br><span style="font-size:12px;color:var(--gray-600)">${esc(w.description||'').slice(0,40)}</span></td>
+                  <td style="font-size:13px">${esc(w.customer_id||'')}</td>
+                  <td style="font-size:13px">${esc(w.scheduled_start||'—')}</td>
+                  <td>${woBadge(w.status)}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table></div>`
+        }
+      </div>
+
+      <!-- Recent Customers -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:700;color:var(--navy)">👥 Recent Customers</div>
+          <button class="btn btn-sm btn-ghost" onclick="showPage('customers')">View All →</button>
+        </div>
+        ${customers.length === 0
+          ? `<div class="empty-state" style="padding:24px"><p>No customers yet</p></div>`
+          : `<div class="table-wrap"><table>
+              <thead><tr><th>Name</th><th>Phone</th><th>Added</th></tr></thead>
+              <tbody>${customers.map(c=>`
+                <tr style="cursor:pointer" onclick="showPage('customers')">
+                  <td><strong>${esc(c.first_name)} ${esc(c.last_name)}</strong>${c.company?`<br><span style="font-size:12px;color:var(--gray-600)">${esc(c.company)}</span>`:''}</td>
+                  <td style="font-size:13px">${esc(c.phone||'—')}</td>
+                  <td style="font-size:12px;color:var(--gray-400)">${c.created_at ? new Date(c.created_at).toLocaleDateString() : '—'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table></div>`
+        }
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card" style="margin-top:20px">
+      <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:16px">⚡ Quick Actions</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="showPage('customers');setTimeout(oAddCustomer,100)">+ New Customer</button>
+        <button class="btn btn-orange" onclick="showPage('estimates');setTimeout(oAddEstimate,100)">+ New Estimate</button>
+        <button class="btn btn-ghost" onclick="showPage('workorders');setTimeout(oAddWO,100)">+ New Work Order</button>
+        <button class="btn btn-ghost" onclick="showPage('dispatch')">📅 Open Dispatch</button>
+        <button class="btn btn-ghost" onclick="showPage('timeclock')">⏱️ Clock In/Out</button>
+      </div>
+    </div>`;
+
+  // Get total customer count
+  DB.from('fp_customers').select('id', {count:'exact',head:true}).then(({count}) => {
+    const el = document.getElementById('dash-cust-count');
+    if (el) el.textContent = count ?? '—';
+  });
+}
 function bCustomers()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">👥</div><p>Customers coming in Piece 4</p></div>'; }
 function bEstimates()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>Estimates coming in Piece 5</p></div>'; }
 function bWorkOrders() { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">🔧</div><p>Work Orders coming in Piece 6</p></div>'; }
