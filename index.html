@@ -1364,7 +1364,178 @@ function printEstimate(id) {
   </body></html>`);
   w.document.close();
 }
-function bWorkOrders() { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">🔧</div><p>Work Orders coming in Piece 6</p></div>'; }
+// ── WORK ORDERS ──────────────────────────────────────────────────────────
+let _workOrders = [], _users = [], _woFilter = 'All';
+
+async function bWorkOrders() {
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading…</p></div>`;
+  const [woRes, custRes, userRes, estRes] = await Promise.all([
+    DB.from('fp_work_orders').select('*, fp_customers(first_name,last_name,company), fp_users(name), fp_estimates(estimate_number)').order('created_at',{ascending:false}),
+    DB.from('fp_customers').select('id,first_name,last_name,company').order('last_name'),
+    DB.from('fp_users').select('id,name,role').eq('active',true).order('name'),
+    DB.from('fp_estimates').select('id,estimate_number,customer_id').order('created_at',{ascending:false})
+  ]);
+  _workOrders = woRes.data || [];
+  if (custRes.data) _customers = custRes.data;
+  _users = userRes.data || [];
+  if (estRes.data) _estimates = estRes.data;
+  renderWorkOrders();
+}
+
+function renderWorkOrders() {
+  const statuses = ['All','Scheduled','In Progress','Completed','On Hold','Cancelled'];
+  const list = _woFilter === 'All' ? _workOrders : _workOrders.filter(w => w.status === _woFilter);
+  const badgeClass = s => ({Scheduled:'badge-blue','In Progress':'badge-orange',Completed:'badge-green',Cancelled:'badge-gray','On Hold':'badge-gray'}[s]||'badge-gray');
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `
+    <div class="page-header">
+      <h1>Work Orders</h1>
+      <button class="btn btn-orange" onclick="oAddWO()">+ New Work Order</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap">
+      ${statuses.map(f => {
+        const count = f==='All' ? _workOrders.length : _workOrders.filter(w=>w.status===f).length;
+        return `<button class="btn btn-sm ${_woFilter===f?'btn-primary':'btn-ghost'}" onclick="_woFilter='${f}';renderWorkOrders()">${f} <span style="opacity:0.7">(${count})</span></button>`;
+      }).join('')}
+    </div>
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>WO #</th><th>Customer</th><th>Description</th><th>Tech</th><th>Date</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${list.length === 0
+              ? `<tr><td colspan="8"><div class="empty-state"><p>No work orders yet</p></div></td></tr>`
+              : list.map(w => {
+                  const c = w.fp_customers;
+                  const custName = c ? `${c.first_name} ${c.last_name}` : '—';
+                  const techName = w.fp_users?.name || '—';
+                  return `<tr>
+                    <td><strong>${esc(w.wo_number)}</strong>
+                      ${w.fp_estimates ? `<br><span style="font-size:11px;color:var(--gray-400)">${esc(w.fp_estimates.estimate_number)}</span>` : ''}
+                    </td>
+                    <td>${esc(custName)}</td>
+                    <td style="max-width:200px;font-size:13px">${esc((w.description||'').slice(0,60))}${(w.description||'').length>60?'…':''}</td>
+                    <td style="font-size:13px">${esc(techName)}</td>
+                    <td style="font-size:13px">${w.scheduled_date ? new Date(w.scheduled_date+'T12:00').toLocaleDateString() : '—'}
+                      ${w.scheduled_start ? `<br><span style="font-size:11px;color:var(--gray-400)">${esc(w.scheduled_start)}</span>` : ''}
+                    </td>
+                    <td><strong>$${Number(w.total_price||0).toFixed(2)}</strong></td>
+                    <td><span class="badge ${badgeClass(w.status)}">${esc(w.status)}</span></td>
+                    <td><button class="btn btn-sm btn-ghost" onclick="oEditWO('${w.id}')">✏️ Edit</button></td>
+                  </tr>`;
+                }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function woModalHTML(w) {
+  const isEdit = !!w;
+  const custOpts = _customers.map(c=>`<option value="${c.id}" ${w?.customer_id===c.id?'selected':''}>${esc(c.first_name)} ${esc(c.last_name)}${c.company?' — '+esc(c.company):''}</option>`).join('');
+  const techOpts = _users.map(u=>`<option value="${u.id}" ${w?.tech_id===u.id?'selected':''}>${esc(u.name)} (${u.role})</option>`).join('');
+  const estOpts  = _estimates.map(e=>`<option value="${e.id}" ${w?.estimate_id===e.id?'selected':''}>${esc(e.estimate_number)}</option>`).join('');
+  const nextNum  = 'WO-' + String((_workOrders.length + 1)).padStart(4,'0');
+  return `
+    <div class="modal" style="max-width:620px">
+      <div class="modal-header">
+        <h2>${isEdit ? 'Edit Work Order — '+esc(w.wo_number) : 'New Work Order'}</h2>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>WO # *</label><input id="wf-num" value="${isEdit?esc(w.wo_number):nextNum}"></div>
+          <div class="field"><label>Status</label>
+            <select id="wf-status">${['Scheduled','In Progress','Completed','On Hold','Cancelled'].map(s=>`<option ${(isEdit?w.status:s)==='Scheduled'&&s==='Scheduled'?'selected':(isEdit&&w.status===s?'selected':'')}>${s}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Customer *</label>
+            <select id="wf-cust"><option value="">— Select Customer —</option>${custOpts}</select>
+          </div>
+          <div class="field"><label>Linked Estimate</label>
+            <select id="wf-est"><option value="">— None —</option>${estOpts}</select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Assigned Tech</label>
+            <select id="wf-tech"><option value="">— Unassigned —</option>${techOpts}</select>
+          </div>
+          <div class="field"><label>Total Price ($)</label>
+            <input id="wf-price" type="number" min="0" step="0.01" value="${isEdit?w.total_price||'':''}" placeholder="0.00">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Scheduled Date</label><input id="wf-date" type="date" value="${isEdit?w.scheduled_date||'':''}"></div>
+          <div class="field-row" style="margin:0;gap:8px">
+            <div class="field"><label>Start Time</label><input id="wf-start" type="time" value="${isEdit?w.scheduled_start||'':''}"></div>
+            <div class="field"><label>End Time</label><input id="wf-end" type="time" value="${isEdit?w.scheduled_end||'':''}"></div>
+          </div>
+        </div>
+        <div class="field"><label>Description</label><textarea id="wf-desc" placeholder="What needs to be done…">${isEdit?esc(w.description||''):''}</textarea></div>
+        <div class="field"><label>Internal Notes</label><textarea id="wf-notes" placeholder="Notes for the tech…">${isEdit?esc(w.notes||''):''}</textarea></div>
+      </div>
+      <div class="modal-footer">
+        ${isEdit?`<button class="btn btn-danger btn-sm" onclick="delWO('${w.id}')">🗑 Delete</button>`:''}
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-orange" onclick="svWO(${isEdit?`'${w.id}'`:null})">Save Work Order</button>
+      </div>
+    </div>`;
+}
+
+function oAddWO(prefillCustomerId, prefillEstimateId) {
+  showModal(woModalHTML(null));
+  if (prefillCustomerId) document.getElementById('wf-cust').value = prefillCustomerId;
+  if (prefillEstimateId) document.getElementById('wf-est').value  = prefillEstimateId;
+}
+
+function oEditWO(id) {
+  const w = _workOrders.find(x=>x.id===id);
+  if (!w) return;
+  showModal(woModalHTML(w));
+}
+
+async function svWO(id) {
+  const num    = document.getElementById('wf-num').value.trim();
+  const custId = document.getElementById('wf-cust').value;
+  if (!num)    { toast('WO number is required','warn'); return; }
+  if (!custId) { toast('Please select a customer','warn'); return; }
+
+  const payload = {
+    wo_number:       num,
+    customer_id:     custId,
+    status:          document.getElementById('wf-status').value,
+    estimate_id:     document.getElementById('wf-est').value   || null,
+    tech_id:         document.getElementById('wf-tech').value  || null,
+    total_price:     parseFloat(document.getElementById('wf-price').value)||0,
+    scheduled_date:  document.getElementById('wf-date').value  || null,
+    scheduled_start: document.getElementById('wf-start').value || null,
+    scheduled_end:   document.getElementById('wf-end').value   || null,
+    description:     document.getElementById('wf-desc').value.trim()  || null,
+    notes:           document.getElementById('wf-notes').value.trim() || null,
+  };
+
+  let error;
+  if (id) {
+    ({ error } = await DB.from('fp_work_orders').update(payload).eq('id', id));
+  } else {
+    ({ error } = await DB.from('fp_work_orders').insert(payload));
+  }
+  if (error) { toast('Save failed: ' + error.message, 'error'); return; }
+  toast(id ? 'Work order updated' : 'Work order created');
+  closeModal();
+  bWorkOrders();
+}
+
+async function delWO(id) {
+  if (!confirm('Delete this work order?')) return;
+  const { error } = await DB.from('fp_work_orders').delete().eq('id', id);
+  if (error) { toast('Delete failed: ' + error.message, 'error'); return; }
+  toast('Work order deleted', 'warn');
+  closeModal();
+  bWorkOrders();
+}
 function bDispatch()   { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><p>Dispatch coming in Piece 7</p></div>'; }
 function bInventory()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div><p>Inventory coming in Piece 8</p></div>'; }
 function bTimeClock()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⏱️</div><p>Time Clock coming in Piece 9</p></div>'; }
