@@ -1536,7 +1536,155 @@ async function delWO(id) {
   closeModal();
   bWorkOrders();
 }
-function bDispatch()   { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><p>Dispatch coming in Piece 7</p></div>'; }
+// ── DISPATCH ─────────────────────────────────────────────────────────────
+let _dispDate = new Date().toISOString().slice(0,10);
+
+async function bDispatch(dateStr) {
+  if (dateStr) _dispDate = dateStr;
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading…</p></div>`;
+
+  const [woRes, userRes, custRes] = await Promise.all([
+    DB.from('fp_work_orders')
+      .select('*, fp_customers(first_name,last_name,phone), fp_users(name)')
+      .eq('scheduled_date', _dispDate)
+      .not('status','eq','Cancelled'),
+    DB.from('fp_users').select('id,name,role').eq('active',true).order('name'),
+    DB.from('fp_customers').select('id,first_name,last_name,company').order('last_name')
+  ]);
+
+  const dayWOs  = woRes.data   || [];
+  _users        = userRes.data || [];
+  if (custRes.data) _customers = custRes.data;
+
+  // Also load unscheduled open WOs
+  const { data: unscheduled } = await DB.from('fp_work_orders')
+    .select('*, fp_customers(first_name,last_name,phone)')
+    .is('scheduled_date', null)
+    .not('status','eq','Cancelled')
+    .not('status','eq','Completed');
+
+  const d     = new Date(_dispDate + 'T12:00');
+  const label = d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const prev  = new Date(d); prev.setDate(prev.getDate()-1);
+  const next  = new Date(d); next.setDate(next.getDate()+1);
+  const prevS = prev.toISOString().slice(0,10);
+  const nextS = next.toISOString().slice(0,10);
+  const isToday = _dispDate === new Date().toISOString().slice(0,10);
+
+  const badgeClass = s => ({Scheduled:'badge-blue','In Progress':'badge-orange',Completed:'badge-green','On Hold':'badge-gray'}[s]||'badge-gray');
+
+  // Group WOs by tech (unassigned gets own bucket)
+  const byTech = {};
+  dayWOs.forEach(w => {
+    const key = w.tech_id || '__unassigned__';
+    if (!byTech[key]) byTech[key] = [];
+    byTech[key].push(w);
+  });
+
+  // Build tech rows — show all techs + any with jobs
+  const techIds = new Set([..._users.map(u=>u.id), ...Object.keys(byTech)]);
+
+  const techRows = [...techIds].map(tid => {
+    const tech = _users.find(u=>u.id===tid);
+    const name = tid === '__unassigned__' ? 'Unassigned' : (tech?.name || 'Unknown');
+    const jobs = byTech[tid] || [];
+    return `
+      <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:var(--navy);color:white">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:34px;height:34px;border-radius:50%;background:${tid==='__unassigned__'?'rgba(255,255,255,0.2)':'var(--orange)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">
+              ${tid==='__unassigned__'?'?':name.split(' ').map(w=>w[0]).slice(0,2).join('')}
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:15px">${esc(name)}</div>
+              <div style="font-size:11px;opacity:0.6">${jobs.length} job${jobs.length!==1?'s':''} today</div>
+            </div>
+          </div>
+          <button class="btn btn-sm" style="background:var(--orange);color:white" onclick="oAddWO();document.getElementById('wf-date').value='${_dispDate}';${tid!=='__unassigned__'?`document.getElementById('wf-tech').value='${tid}'`:''}">+ Add Job</button>
+        </div>
+        ${jobs.length === 0
+          ? `<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">No jobs scheduled</div>`
+          : `<div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px">
+              ${jobs.map(w => {
+                const c = w.fp_customers;
+                const custName = c ? `${c.first_name} ${c.last_name}` : '—';
+                return `
+                  <div style="display:flex;align-items:center;gap:14px;padding:12px 14px;background:var(--gray-100);border-radius:8px;border-left:4px solid ${w.status==='Completed'?'#16A34A':w.status==='In Progress'?'#D97706':'#2563EB'}">
+                    <div style="min-width:64px;text-align:center">
+                      <div style="font-weight:700;font-size:14px;color:var(--navy)">${esc(w.scheduled_start||'—')}</div>
+                      ${w.scheduled_end?`<div style="font-size:11px;color:var(--gray-400)">${esc(w.scheduled_end)}</div>`:''}
+                    </div>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-weight:700;color:var(--navy)">${esc(w.wo_number)} — ${esc(custName)}</div>
+                      <div style="font-size:13px;color:var(--gray-600);margin-top:2px">${esc((w.description||'No description').slice(0,80))}</div>
+                      ${c?.phone?`<div style="font-size:12px;color:var(--gray-400);margin-top:2px">📞 ${esc(c.phone)}</div>`:''}
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+                      <span class="badge ${badgeClass(w.status)}">${esc(w.status)}</span>
+                      <div style="display:flex;gap:6px">
+                        ${w.status!=='In Progress'&&w.status!=='Completed'?`<button class="btn btn-sm" style="background:#FEF3C7;color:#92400E;font-size:11px" onclick="quickStatusWO('${w.id}','In Progress')">▶ Start</button>`:''}
+                        ${w.status!=='Completed'?`<button class="btn btn-sm" style="background:#DCFCE7;color:#166534;font-size:11px" onclick="quickStatusWO('${w.id}','Completed')">✓ Done</button>`:''}
+                        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="oEditWO('${w.id}')">✏️</button>
+                      </div>
+                    </div>
+                  </div>`;
+              }).join('')}
+            </div>`
+        }
+      </div>`;
+  }).join('');
+
+  const unschHtml = (unscheduled||[]).length === 0 ? '' : `
+    <div class="card" style="margin-top:8px;padding:0;overflow:hidden">
+      <div style="padding:14px 18px;background:var(--gray-600);color:white;font-weight:700">
+        📋 Unscheduled Open Jobs (${unscheduled.length})
+      </div>
+      <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+        ${(unscheduled||[]).map(w=>{
+          const c = w.fp_customers;
+          return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--gray-100);border-radius:8px">
+            <div>
+              <div style="font-weight:600;color:var(--navy)">${esc(w.wo_number)} — ${c?esc(c.first_name)+' '+esc(c.last_name):'—'}</div>
+              <div style="font-size:12px;color:var(--gray-600)">${esc((w.description||'No description').slice(0,60))}</div>
+            </div>
+            <button class="btn btn-sm btn-ghost" onclick="oEditWO('${w.id}')">Schedule →</button>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+
+  pc.innerHTML = `
+    <div class="page-header" style="margin-bottom:20px">
+      <h1>Dispatch Board</h1>
+      <button class="btn btn-orange" onclick="oAddWO();setTimeout(()=>{document.getElementById('wf-date').value='${_dispDate}'},50)">+ Schedule Job</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+      <button class="btn btn-ghost" onclick="bDispatch('${prevS}')">← Prev</button>
+      <div style="flex:1;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:var(--navy)">${label}</div>
+        ${isToday?`<div style="font-size:12px;color:var(--orange);font-weight:600">TODAY</div>`:''}
+      </div>
+      <button class="btn btn-ghost" onclick="bDispatch('${nextS}')">Next →</button>
+      <button class="btn btn-ghost btn-sm" onclick="bDispatch('${new Date().toISOString().slice(0,10)}')">Today</button>
+      <input type="date" value="${_dispDate}" onchange="bDispatch(this.value)" style="padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--navy)">
+    </div>
+    <div style="background:var(--light-blue);border-radius:8px;padding:12px 16px;margin-bottom:20px;display:flex;gap:24px;font-size:13px">
+      <span>📋 <strong>${dayWOs.length}</strong> jobs today</span>
+      <span>✓ <strong>${dayWOs.filter(w=>w.status==='Completed').length}</strong> completed</span>
+      <span>▶ <strong>${dayWOs.filter(w=>w.status==='In Progress').length}</strong> in progress</span>
+      <span>🕐 <strong>${dayWOs.filter(w=>w.status==='Scheduled').length}</strong> scheduled</span>
+    </div>
+    ${techRows}
+    ${unschHtml}`;
+}
+
+async function quickStatusWO(id, status) {
+  const { error } = await DB.from('fp_work_orders').update({status}).eq('id',id);
+  if (error) { toast('Update failed','error'); return; }
+  toast(`Marked ${status}`);
+  bDispatch();
+}
 function bInventory()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div><p>Inventory coming in Piece 8</p></div>'; }
 function bTimeClock()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⏱️</div><p>Time Clock coming in Piece 9</p></div>'; }
 function bAdmin()      { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⚙️</div><p>Admin coming in Piece 10</p></div>'; }
