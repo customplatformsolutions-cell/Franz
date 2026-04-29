@@ -1939,7 +1939,221 @@ async function delInvItem(id) {
   closeModal();
   bInventory();
 }
-function bTimeClock()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⏱️</div><p>Time Clock coming in Piece 9</p></div>'; }
+// ── TIME CLOCK ───────────────────────────────────────────────────────────
+let _tcTab = 'clock';
+
+async function bTimeClock() {
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading…</p></div>`;
+  if (!_users.length) {
+    const { data } = await DB.from('fp_users').select('id,name,role').eq('active',true).order('name');
+    _users = data || [];
+  }
+  renderTCTab();
+}
+
+function renderTCTab() {
+  const tabs = CU.role==='admin' ? ['clock','timesheet'] : ['clock'];
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `
+    <div class="page-header"><h1>Time Clock</h1></div>
+    <div style="display:flex;gap:8px;margin-bottom:24px">
+      <button class="btn btn-sm ${_tcTab==='clock'?'btn-primary':'btn-ghost'}" onclick="_tcTab='clock';renderTCTab()">⏱️ Clock In/Out</button>
+      ${CU.role==='admin'?`<button class="btn btn-sm ${_tcTab==='timesheet'?'btn-primary':'btn-ghost'}" onclick="_tcTab='timesheet';renderTCTab()">📋 Timesheet</button>`:''}
+    </div>
+    <div id="tc-body"></div>`;
+  if (_tcTab==='clock')     renderClockPanel();
+  if (_tcTab==='timesheet') renderTimesheet();
+}
+
+async function renderClockPanel() {
+  const body = document.getElementById('tc-body');
+
+  // Get today's punches for current user
+  const today = new Date().toISOString().slice(0,10);
+  const { data: punches } = await DB.from('fp_time_punches')
+    .select('*').eq('user_id', CU.id)
+    .gte('punch_in', today + 'T00:00:00')
+    .order('punch_in');
+
+  const activePunch = (punches||[]).find(p => !p.punch_out);
+  const todayMins   = (punches||[]).filter(p=>p.punch_out).reduce((s,p)=>{
+    return s + (new Date(p.punch_out)-new Date(p.punch_in))/60000;
+  },0);
+  const todayHrs = (todayMins/60).toFixed(2);
+
+  // Live timer
+  const timerHTML = activePunch ? `
+    <div style="font-size:13px;color:var(--orange);font-weight:600;margin-top:8px" id="tc-timer">
+      Clocked in ${new Date(activePunch.punch_in).toLocaleTimeString()} — calculating…
+    </div>` : '';
+
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+      <!-- Clock widget -->
+      <div class="card" style="text-align:center;padding:36px 24px">
+        <div style="font-size:13px;font-weight:600;color:var(--gray-600);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">
+          ${new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}
+        </div>
+        <div id="tc-clock" style="font-size:42px;font-weight:800;color:var(--navy);letter-spacing:2px;margin-bottom:4px">
+          ${new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}
+        </div>
+        ${timerHTML}
+        <div style="margin-top:28px">
+          ${activePunch
+            ? `<button class="btn btn-orange" style="font-size:16px;padding:14px 40px;width:100%;border-radius:10px" onclick="doPunchOut('${activePunch.id}')">
+                ⏹ Clock Out
+               </button>`
+            : `<button class="btn btn-primary" style="font-size:16px;padding:14px 40px;width:100%;border-radius:10px;background:var(--success)" onclick="doPunchIn()">
+                ▶ Clock In
+               </button>`
+          }
+        </div>
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-200)">
+          <div style="font-size:12px;color:var(--gray-400);margin-bottom:4px">TODAY'S TOTAL</div>
+          <div style="font-size:28px;font-weight:800;color:var(--navy)">${todayHrs} hrs</div>
+        </div>
+      </div>
+
+      <!-- Today's punches -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--gray-200);font-weight:700;color:var(--navy)">Today's Punches</div>
+        ${!punches||punches.length===0
+          ? `<div style="padding:32px;text-align:center;color:var(--gray-400)">No punches yet today</div>`
+          : `<table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead><tr>
+                <th style="padding:8px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-600);border-bottom:1px solid var(--gray-200)">In</th>
+                <th style="padding:8px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-600);border-bottom:1px solid var(--gray-200)">Out</th>
+                <th style="padding:8px 14px;text-align:right;font-size:11px;font-weight:700;color:var(--gray-600);border-bottom:1px solid var(--gray-200)">Hours</th>
+                <th style="padding:8px 14px;font-size:11px;font-weight:700;color:var(--gray-600);border-bottom:1px solid var(--gray-200)">Status</th>
+              </tr></thead>
+              <tbody>
+                ${punches.map(p=>{
+                  const hrs = p.punch_out ? ((new Date(p.punch_out)-new Date(p.punch_in))/3600000).toFixed(2) : '—';
+                  const badge = p.status==='approved'?'badge-green':p.status==='rejected'?'badge-red':'badge-gray';
+                  return `<tr>
+                    <td style="padding:10px 14px">${new Date(p.punch_in).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</td>
+                    <td style="padding:10px 14px">${p.punch_out?new Date(p.punch_out).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}):'<span style="color:var(--orange);font-weight:600">Active</span>'}</td>
+                    <td style="padding:10px 14px;text-align:right;font-weight:700">${hrs}</td>
+                    <td style="padding:10px 14px"><span class="badge ${badge}">${p.status}</span></td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>`
+        }
+      </div>
+    </div>`;
+
+  // Tick live clock
+  clearInterval(window._tcInterval);
+  window._tcInterval = setInterval(() => {
+    const el = document.getElementById('tc-clock');
+    if (el) el.textContent = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+    else clearInterval(window._tcInterval);
+
+    if (activePunch) {
+      const tEl = document.getElementById('tc-timer');
+      if (tEl) {
+        const mins = Math.floor((Date.now()-new Date(activePunch.punch_in))/60000);
+        const h=Math.floor(mins/60), m=mins%60;
+        tEl.textContent = `Clocked in ${new Date(activePunch.punch_in).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})} — ${h?h+'h ':''} ${m}m elapsed`;
+      }
+    }
+  }, 30000);
+}
+
+async function doPunchIn() {
+  const { error } = await DB.from('fp_time_punches').insert({
+    user_id:  CU.id,
+    punch_in: new Date().toISOString(),
+    status:   'pending'
+  });
+  if (error) { toast('Clock-in failed: '+error.message,'error'); return; }
+  toast('Clocked in ✓');
+  renderClockPanel();
+}
+
+async function doPunchOut(punchId) {
+  const { error } = await DB.from('fp_time_punches').update({
+    punch_out: new Date().toISOString()
+  }).eq('id', punchId);
+  if (error) { toast('Clock-out failed: '+error.message,'error'); return; }
+  toast('Clocked out ✓');
+  clearInterval(window._tcInterval);
+  renderClockPanel();
+}
+
+async function renderTimesheet() {
+  const body = document.getElementById('tc-body');
+  // Default: current week
+  const now   = new Date();
+  const day   = now.getDay();
+  const start = new Date(now); start.setDate(now.getDate()-day);
+  const end   = new Date(start); end.setDate(start.getDate()+6);
+  const startStr = start.toISOString().slice(0,10);
+  const endStr   = end.toISOString().slice(0,10);
+
+  const { data: punches } = await DB.from('fp_time_punches')
+    .select('*, fp_users(name)')
+    .gte('punch_in', startStr+'T00:00:00')
+    .lte('punch_in', endStr+'T23:59:59')
+    .order('punch_in',{ascending:false});
+
+  const rows = punches||[];
+  const grouped = {};
+  rows.forEach(p=>{
+    const name = p.fp_users?.name||'Unknown';
+    if (!grouped[name]) grouped[name]={punches:[],total:0};
+    grouped[name].punches.push(p);
+    if (p.punch_out) grouped[name].total += (new Date(p.punch_out)-new Date(p.punch_in))/3600000;
+  });
+
+  body.innerHTML = `
+    <div style="background:var(--light-blue);border-radius:8px;padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:600;color:var(--navy)">Week of ${start.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${end.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>
+      <span style="font-size:13px;color:var(--gray-600)">${rows.length} punch${rows.length!==1?'es':''} · ${Object.keys(grouped).length} employee${Object.keys(grouped).length!==1?'s':''}</span>
+    </div>
+    ${Object.entries(grouped).map(([name,data])=>`
+      <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
+        <div style="padding:12px 18px;background:var(--navy);color:white;display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700">${esc(name)}</div>
+          <div style="font-size:13px;opacity:0.8">Total: <strong>${data.total.toFixed(2)} hrs</strong></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Date</th><th>In</th><th>Out</th><th>Hours</th><th>Notes</th><th>Status</th>${CU.role==='admin'?'<th>Actions</th>':''}</tr></thead>
+          <tbody>
+            ${data.punches.map(p=>{
+              const hrs   = p.punch_out ? ((new Date(p.punch_out)-new Date(p.punch_in))/3600000).toFixed(2) : '—';
+              const badge = p.status==='approved'?'badge-green':p.status==='rejected'?'badge-red':'badge-gray';
+              return `<tr>
+                <td style="font-size:13px">${new Date(p.punch_in).toLocaleDateString()}</td>
+                <td>${new Date(p.punch_in).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</td>
+                <td>${p.punch_out?new Date(p.punch_out).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}):'<span style="color:var(--orange)">Active</span>'}</td>
+                <td style="font-weight:700">${hrs}</td>
+                <td style="font-size:12px;color:var(--gray-600)">${esc(p.notes||'—')}</td>
+                <td><span class="badge ${badge}">${p.status}</span></td>
+                ${CU.role==='admin'?`<td style="display:flex;gap:6px">
+                  ${p.status!=='approved'?`<button class="btn btn-sm" style="background:#DCFCE7;color:#166534;font-size:11px" onclick="approveTime('${p.id}')">✓ Approve</button>`:''}
+                  ${p.status!=='rejected'?`<button class="btn btn-sm" style="background:#FEE2E2;color:#991B1B;font-size:11px" onclick="rejectTime('${p.id}')">✗ Reject</button>`:''}
+                </td>`:''}
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>
+      </div>`).join('')}
+    ${Object.keys(grouped).length===0?`<div class="empty-state"><div class="empty-icon">⏱️</div><p>No punches this week</p></div>`:''}`;
+}
+
+async function approveTime(id) {
+  await DB.from('fp_time_punches').update({status:'approved',approved_by:CU.id,approved_at:new Date().toISOString()}).eq('id',id);
+  toast('Approved ✓');
+  renderTimesheet();
+}
+async function rejectTime(id) {
+  await DB.from('fp_time_punches').update({status:'rejected',approved_by:CU.id,approved_at:new Date().toISOString()}).eq('id',id);
+  toast('Rejected','warn');
+  renderTimesheet();
+}
 function bAdmin()      { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⚙️</div><p>Admin coming in Piece 10</p></div>'; }
 
 // ── Boot ──────────────────────────────────────────────────────────────────
