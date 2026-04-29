@@ -2436,31 +2436,229 @@ async function svLocation(id) {
   toast(id?'Location updated':'Location added'); closeModal(); bAdmin();
 }
 
-// ── Phone stub ────────────────────────────────────────────────────────────
+// ── Phone ─────────────────────────────────────────────────────────────────
+let _phoneTab = 'calls';
+let _dialNum  = '';
+
 function bPhone() {
   document.getElementById('page-content').innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:center;min-height:60vh">
-      <div style="text-align:center;max-width:480px">
-        <div style="font-size:64px;margin-bottom:20px">☎️</div>
-        <h2 style="font-size:24px;font-weight:800;color:var(--navy);margin-bottom:12px">Phone System</h2>
-        <p style="color:var(--gray-600);font-size:15px;margin-bottom:28px;line-height:1.6">
-          Integrated phone with inbound/outbound calling, voicemail, call recording, and SMS — available as an add-on.
-        </p>
-        <div style="background:var(--light-blue);border-radius:12px;padding:24px;margin-bottom:24px;text-align:left">
-          <div style="font-weight:700;color:var(--navy);margin-bottom:12px">Included features:</div>
-          <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--gray-600)">
-            <div>📞 Click-to-call from any customer record</div>
-            <div>📩 Voicemail with email notifications</div>
-            <div>🎙️ Automatic call recording</div>
-            <div>💬 Two-way SMS messaging</div>
-            <div>📊 Call center monitor & rep activity</div>
-          </div>
+    <div style="display:flex;gap:0;height:calc(100vh - 120px);overflow:hidden">
+
+      <!-- LEFT PANEL: tabs + list -->
+      <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid #e2e8f0">
+
+        <!-- Sub-tabs -->
+        <div style="display:flex;border-bottom:2px solid #e2e8f0;background:#fff">
+          <button onclick="phoneTab('calls')"     id="ptab-calls"     style="flex:1;padding:14px 8px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--navy);border-bottom:3px solid var(--orange)">📞 Calls</button>
+          <button onclick="phoneTab('voicemail')" id="ptab-voicemail" style="flex:1;padding:14px 8px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--gray-500);border-bottom:3px solid transparent">📩 Voicemail <span style="background:#e53e3e;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px">3</span></button>
+          <button onclick="phoneTab('sms')"       id="ptab-sms"       style="flex:1;padding:14px 8px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--gray-500);border-bottom:3px solid transparent">💬 Messages</button>
         </div>
-        <div style="background:var(--orange);color:white;border-radius:8px;padding:12px 20px;font-size:13px;font-weight:600">
-          Contact Custom Platform Solutions to activate
+
+        <!-- List body -->
+        <div id="phone-list" style="flex:1;overflow-y:auto;background:#f8fafc"></div>
+      </div>
+
+      <!-- RIGHT PANEL: softphone -->
+      <div style="width:300px;flex-shrink:0;background:#fff;display:flex;flex-direction:column">
+        <!-- Status bar -->
+        <div style="background:var(--navy);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px">
+          <div style="width:10px;height:10px;border-radius:50%;background:#48bb78;flex-shrink:0"></div>
+          <span style="font-size:13px;font-weight:600">Available — Todd Franz</span>
+        </div>
+
+        <!-- Dial display -->
+        <div style="padding:20px 16px 0;text-align:center">
+          <div id="dial-display" style="font-size:26px;font-weight:700;color:var(--navy);letter-spacing:3px;min-height:38px;margin-bottom:4px">${_dialNum||''}</div>
+          <div style="font-size:12px;color:var(--gray-400);min-height:16px" id="dial-label"></div>
+        </div>
+
+        <!-- Dial pad -->
+        <div style="padding:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          ${['1','2','3','4','5','6','7','8','9','*','0','#'].map(k=>`
+            <button onclick="dialKey('${k}')" style="padding:14px;font-size:18px;font-weight:700;background:var(--light-blue);color:var(--navy);border:none;border-radius:10px;cursor:pointer;transition:background .15s" onmouseover="this.style.background='#b8d0f0'" onmouseout="this.style.background='var(--light-blue)'">${k}</button>
+          `).join('')}
+        </div>
+
+        <!-- Action buttons -->
+        <div style="padding:0 16px 16px;display:flex;gap:10px">
+          <button onclick="dialCall()" style="flex:1;padding:14px;background:#38a169;color:#fff;border:none;border-radius:10px;font-size:20px;cursor:pointer;font-weight:700">📞</button>
+          <button onclick="dialBackspace()" style="width:52px;padding:14px;background:#e2e8f0;color:var(--navy);border:none;border-radius:10px;font-size:16px;cursor:pointer">⌫</button>
+        </div>
+
+        <!-- Quick contacts -->
+        <div style="border-top:1px solid #e2e8f0;padding:12px 16px;flex:1;overflow-y:auto">
+          <div style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Recent Contacts</div>
+          ${[
+            {name:'Mike Johnson',    ph:'(262) 555-0101'},
+            {name:'Sarah Williams',  ph:'(262) 555-0102'},
+            {name:'Bob Anderson',    ph:'(414) 555-0103'},
+            {name:'Main Warehouse',  ph:'(262) 719-9122'},
+          ].map(c=>`
+            <div onclick="dialSet('${c.ph}','${c.name}')" style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;cursor:pointer;margin-bottom:4px" onmouseover="this.style.background='#f0f4ff'" onmouseout="this.style.background='none'">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${c.name.split(' ').map(w=>w[0]).slice(0,2).join('')}</div>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:var(--navy)">${c.name}</div>
+                <div style="font-size:11px;color:var(--gray-500)">${c.ph}</div>
+              </div>
+            </div>
+          `).join('')}
         </div>
       </div>
     </div>`;
+
+  phoneTab('calls');
+}
+
+function phoneTab(tab) {
+  _phoneTab = tab;
+  ['calls','voicemail','sms'].forEach(t => {
+    const btn = document.getElementById('ptab-'+t);
+    if (!btn) return;
+    if (t === tab) {
+      btn.style.color       = 'var(--navy)';
+      btn.style.borderBottom = '3px solid var(--orange)';
+    } else {
+      btn.style.color       = 'var(--gray-500)';
+      btn.style.borderBottom = '3px solid transparent';
+    }
+  });
+  const el = document.getElementById('phone-list');
+  if (!el) return;
+
+  if (tab === 'calls') {
+    const calls = [
+      {dir:'in',  name:'Mike Johnson',   ph:'(262) 555-0101', dur:'4m 12s', ago:'Today 9:41 AM',  status:'answered'},
+      {dir:'out', name:'Bob Anderson',   ph:'(414) 555-0103', dur:'1m 48s', ago:'Today 9:05 AM',  status:'answered'},
+      {dir:'in',  name:'Unknown',        ph:'(262) 555-8820', dur:'—',      ago:'Today 8:57 AM',  status:'missed'},
+      {dir:'out', name:'Sarah Williams', ph:'(262) 555-0102', dur:'7m 33s', ago:'Yesterday 4:22 PM', status:'answered'},
+      {dir:'in',  name:'Mike Johnson',   ph:'(262) 555-0101', dur:'2m 05s', ago:'Yesterday 2:10 PM', status:'answered'},
+      {dir:'in',  name:'Unknown',        ph:'(414) 555-3390', dur:'—',      ago:'Yesterday 11:48 AM',status:'missed'},
+      {dir:'out', name:'Bob Anderson',   ph:'(414) 555-0103', dur:'3m 59s', ago:'Apr 28  3:15 PM', status:'answered'},
+      {dir:'in',  name:'Sarah Williams', ph:'(262) 555-0102', dur:'9m 01s', ago:'Apr 28  1:00 PM', status:'answered'},
+    ];
+    el.innerHTML = calls.map(c => {
+      const isMissed  = c.status === 'missed';
+      const isOut     = c.dir === 'out';
+      const arrow     = isOut ? '↗' : (isMissed ? '↙' : '↙');
+      const arrowClr  = isOut ? '#3182ce' : (isMissed ? '#e53e3e' : '#38a169');
+      return `<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid #f0f4f8;background:#fff;cursor:pointer" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'">
+        <div style="width:36px;height:36px;border-radius:50%;background:${isMissed?'#fff5f5':'var(--light-blue)'};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:${arrowClr};flex-shrink:0">${arrow}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:${isMissed?'#e53e3e':'var(--navy)'};">${c.name}</div>
+          <div style="font-size:12px;color:var(--gray-500)">${c.ph} · ${c.ago}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:12px;color:var(--gray-400)">${c.dur}</div>
+          <button onclick="dialSet('${c.ph}','${c.name}')" style="font-size:11px;background:var(--light-blue);color:var(--navy);border:none;border-radius:6px;padding:3px 8px;cursor:pointer;margin-top:4px">Call back</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  else if (tab === 'voicemail') {
+    const vms = [
+      {name:'Unknown',        ph:'(262) 555-8820', ago:'Today 8:57 AM',     dur:'0:42', unread:true},
+      {name:'Unknown',        ph:'(414) 555-3390', ago:'Yesterday 11:48 AM',dur:'1:08', unread:true},
+      {name:'Mike Johnson',   ph:'(262) 555-0101', ago:'Apr 27  3:10 PM',   dur:'0:23', unread:true},
+      {name:'Sarah Williams', ph:'(262) 555-0102', ago:'Apr 26  10:05 AM',  dur:'0:55', unread:false},
+      {name:'Unknown',        ph:'(414) 555-7712', ago:'Apr 25  2:33 PM',   dur:'1:14', unread:false},
+    ];
+    el.innerHTML = vms.map(v => `
+      <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid #f0f4f8;background:${v.unread?'#fff8f0':'#fff'};cursor:pointer" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='${v.unread?'#fff8f0':'#fff'}'">
+        <div style="width:36px;height:36px;border-radius:50%;background:${v.unread?'#fff3cd':'var(--light-blue)'};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${v.unread?'🔴':'📩'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:${v.unread?700:500};color:var(--navy)">${v.name} ${v.unread?'<span style="font-size:10px;background:#e53e3e;color:#fff;padding:1px 5px;border-radius:8px;margin-left:4px">NEW</span>':''}</div>
+          <div style="font-size:12px;color:var(--gray-500)">${v.ph} · ${v.ago}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:12px;color:var(--gray-400)">${v.dur}</div>
+          <div style="display:flex;gap:6px;margin-top:4px">
+            <button style="font-size:11px;background:#ebf8ff;color:#2b6cb0;border:none;border-radius:6px;padding:3px 8px;cursor:pointer">▶ Play</button>
+            <button style="font-size:11px;background:var(--light-blue);color:var(--navy);border:none;border-radius:6px;padding:3px 8px;cursor:pointer">Call</button>
+          </div>
+        </div>
+      </div>`).join('');
+  }
+
+  else if (tab === 'sms') {
+    const threads = [
+      {name:'Mike Johnson',   ph:'(262) 555-0101', last:'Sounds good, see you Tuesday!',          ago:'9:43 AM',  unread:0},
+      {name:'Sarah Williams', ph:'(262) 555-0102', last:'What time will the tech arrive?',         ago:'Yesterday',unread:2},
+      {name:'Bob Anderson',   ph:'(414) 555-0103', last:'The leak is fixed, thank you Franz!',     ago:'Apr 28',   unread:0},
+      {name:'(262) 555-8820', ph:'(262) 555-8820', last:'Hi, I need a quote for a water heater.',  ago:'Apr 27',   unread:1},
+    ];
+    el.innerHTML = threads.map(t => `
+      <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid #f0f4f8;background:${t.unread?'#fff8f0':'#fff'};cursor:pointer" onclick="phoneOpenSms('${t.name}','${t.ph}')" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='${t.unread?'#fff8f0':'#fff'}'">
+        <div style="width:40px;height:40px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">${t.name.includes('(')?'?':t.name.split(' ').map(w=>w[0]).slice(0,2).join('')}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:${t.unread?700:500};color:var(--navy)">${t.name}</div>
+          <div style="font-size:12px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px">${t.last}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:11px;color:var(--gray-400)">${t.ago}</div>
+          ${t.unread?`<div style="background:#e53e3e;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700;margin-top:4px;display:inline-block">${t.unread}</div>`:''}
+        </div>
+      </div>`).join('');
+  }
+}
+
+function dialKey(k) {
+  _dialNum += k;
+  const d = document.getElementById('dial-display');
+  if (d) d.textContent = _dialNum;
+}
+function dialBackspace() {
+  _dialNum = _dialNum.slice(0,-1);
+  const d = document.getElementById('dial-display');
+  if (d) d.textContent = _dialNum;
+}
+function dialSet(ph, name) {
+  _dialNum = ph;
+  const d = document.getElementById('dial-display');
+  if (d) d.textContent = ph;
+  const l = document.getElementById('dial-label');
+  if (l) l.textContent = name;
+}
+function dialCall() {
+  if (!_dialNum) return;
+  toast(`Calling ${_dialNum}… (demo mode — phone system not yet activated)`);
+}
+function phoneOpenSms(name, ph) {
+  const el = document.getElementById('phone-list');
+  if (!el) return;
+  const msgs = [
+    {me:false, text:`Hi, I need help with ${name==='Mike Johnson'?'a water heater issue':'a plumbing issue'}.`, t:'9:02 AM'},
+    {me:true,  text:'Thanks for reaching out! We can have a tech out tomorrow. Does morning work?', t:'9:18 AM'},
+    {me:false, text:'Yes, morning works great. Around 9 AM?', t:'9:22 AM'},
+    {me:true,  text:'Perfect — confirmed for tomorrow 9 AM. Tech will call 30 min before arrival.', t:'9:35 AM'},
+    {me:false, text:name==='Sarah Williams'?'What time will the tech arrive?':'Sounds good, see you Tuesday!', t:'9:43 AM'},
+  ];
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0;cursor:pointer" onclick="phoneTab('sms')">
+      <span style="font-size:18px;color:var(--gray-500)">←</span>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--navy)">${name}</div>
+        <div style="font-size:12px;color:var(--gray-500)">${ph}</div>
+      </div>
+    </div>
+    <div style="flex:1;padding:16px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;background:#f8fafc;min-height:200px">
+      ${msgs.map(m=>`<div style="display:flex;justify-content:${m.me?'flex-end':'flex-start'}">
+        <div style="max-width:75%;background:${m.me?'var(--navy)':'#fff'};color:${m.me?'#fff':'var(--navy)'};border-radius:${m.me?'16px 16px 4px 16px':'16px 16px 16px 4px'};padding:10px 14px;font-size:13px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+          <div>${m.text}</div>
+          <div style="font-size:10px;opacity:.6;margin-top:4px;text-align:right">${m.t}</div>
+        </div>
+      </div>`).join('')}
+    </div>
+    <div style="padding:12px;border-top:1px solid #e2e8f0;background:#fff;display:flex;gap:8px">
+      <input id="sms-input" placeholder="Type a message…" style="flex:1;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:24px;font-size:13px;outline:none" onkeydown="if(event.key==='Enter')phoneSend()">
+      <button onclick="phoneSend()" style="background:var(--navy);color:#fff;border:none;border-radius:24px;padding:10px 18px;cursor:pointer;font-size:13px;font-weight:600">Send</button>
+    </div>`;
+}
+function phoneSend() {
+  const inp = document.getElementById('sms-input');
+  if (!inp || !inp.value.trim()) return;
+  toast('Message queued (demo mode — SMS not yet activated)');
+  inp.value = '';
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────
