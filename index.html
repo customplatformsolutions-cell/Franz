@@ -884,7 +884,177 @@ async function bDashboard() {
     if (el) el.textContent = count ?? '—';
   });
 }
-function bCustomers()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">👥</div><p>Customers coming in Piece 4</p></div>'; }
+// ── CUSTOMERS ────────────────────────────────────────────────────────────
+let _customers = [];
+
+async function bCustomers() {
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading…</p></div>`;
+  const { data, error } = await DB.from('fp_customers').select('*').order('last_name');
+  if (error) { toast('Failed to load customers', 'error'); return; }
+  _customers = data || [];
+  renderCustomers(_customers);
+}
+
+function renderCustomers(list) {
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `
+    <div class="page-header">
+      <h1>Customers <span style="font-size:14px;font-weight:400;color:var(--gray-400)">(${list.length})</span></h1>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div class="topbar-search" style="width:220px">
+          <span>🔍</span>
+          <input type="text" placeholder="Search customers…" oninput="filterCustomers(this.value)" id="cust-search">
+        </div>
+        <button class="btn btn-orange" onclick="oAddCustomer()">+ Add Customer</button>
+      </div>
+    </div>
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th><th>Company</th><th>Phone</th><th>Email</th><th>City</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.length === 0
+              ? `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">👥</div><p>No customers yet — add your first one</p></div></td></tr>`
+              : list.map(c => `
+              <tr>
+                <td><strong>${esc(c.first_name)} ${esc(c.last_name)}</strong></td>
+                <td style="color:var(--gray-600)">${esc(c.company || '—')}</td>
+                <td>${esc(c.phone || '—')}</td>
+                <td style="font-size:13px">${esc(c.email || '—')}</td>
+                <td>${esc(c.city || '—')}</td>
+                <td>
+                  <button class="btn btn-sm btn-ghost" onclick="oEditCustomer('${c.id}')">✏️ Edit</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function filterCustomers(q) {
+  const s = q.toLowerCase();
+  const filtered = _customers.filter(c =>
+    `${c.first_name} ${c.last_name}`.toLowerCase().includes(s) ||
+    (c.company||'').toLowerCase().includes(s) ||
+    (c.phone||'').includes(s) ||
+    (c.email||'').toLowerCase().includes(s) ||
+    (c.city||'').toLowerCase().includes(s)
+  );
+  renderCustomers(filtered);
+  setTimeout(() => { const el = document.getElementById('cust-search'); if(el){ el.value = q; el.focus(); } }, 0);
+}
+
+function oAddCustomer() {
+  showModal(`
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Add Customer</h2>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>First Name *</label><input id="cf-fn" placeholder="Jeff"></div>
+          <div class="field"><label>Last Name *</label><input id="cf-ln" placeholder="Smith"></div>
+        </div>
+        <div class="field"><label>Company</label><input id="cf-co" placeholder="Smith Properties LLC"></div>
+        <div class="field-row">
+          <div class="field"><label>Phone</label><input id="cf-ph" placeholder="(262) 555-0100" type="tel"></div>
+          <div class="field"><label>Email</label><input id="cf-em" placeholder="jeff@email.com" type="email"></div>
+        </div>
+        <div class="field"><label>Address</label><input id="cf-ad" placeholder="123 Main Street"></div>
+        <div class="field-row3">
+          <div class="field"><label>City</label><input id="cf-ci" placeholder="Pewaukee"></div>
+          <div class="field"><label>State</label><input id="cf-st" value="WI" maxlength="2" style="text-transform:uppercase"></div>
+          <div class="field"><label>ZIP</label><input id="cf-zp" placeholder="53072"></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="cf-no" placeholder="Any notes about this customer…"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-orange" onclick="svCustomer(null)">Save Customer</button>
+      </div>
+    </div>`);
+}
+
+function oEditCustomer(id) {
+  const c = _customers.find(x => x.id === id);
+  if (!c) return;
+  showModal(`
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Edit Customer</h2>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>First Name *</label><input id="cf-fn" value="${esc(c.first_name)}"></div>
+          <div class="field"><label>Last Name *</label><input id="cf-ln" value="${esc(c.last_name)}"></div>
+        </div>
+        <div class="field"><label>Company</label><input id="cf-co" value="${esc(c.company||'')}"></div>
+        <div class="field-row">
+          <div class="field"><label>Phone</label><input id="cf-ph" value="${esc(c.phone||'')}" type="tel"></div>
+          <div class="field"><label>Email</label><input id="cf-em" value="${esc(c.email||'')}" type="email"></div>
+        </div>
+        <div class="field"><label>Address</label><input id="cf-ad" value="${esc(c.address||'')}"></div>
+        <div class="field-row3">
+          <div class="field"><label>City</label><input id="cf-ci" value="${esc(c.city||'')}"></div>
+          <div class="field"><label>State</label><input id="cf-st" value="${esc(c.state||'WI')}" maxlength="2" style="text-transform:uppercase"></div>
+          <div class="field"><label>ZIP</label><input id="cf-zp" value="${esc(c.zip||'')}"></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="cf-no">${esc(c.notes||'')}</textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger btn-sm" onclick="delCustomer('${c.id}')">🗑 Delete</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-orange" onclick="svCustomer('${c.id}')">Save Changes</button>
+      </div>
+    </div>`);
+}
+
+async function svCustomer(id) {
+  const fn = document.getElementById('cf-fn').value.trim();
+  const ln = document.getElementById('cf-ln').value.trim();
+  if (!fn || !ln) { toast('First and last name are required', 'warn'); return; }
+
+  const payload = {
+    first_name: fn, last_name: ln,
+    company:  document.getElementById('cf-co').value.trim() || null,
+    phone:    document.getElementById('cf-ph').value.trim() || null,
+    email:    document.getElementById('cf-em').value.trim() || null,
+    address:  document.getElementById('cf-ad').value.trim() || null,
+    city:     document.getElementById('cf-ci').value.trim() || null,
+    state:    document.getElementById('cf-st').value.trim().toUpperCase() || null,
+    zip:      document.getElementById('cf-zp').value.trim() || null,
+    notes:    document.getElementById('cf-no').value.trim() || null,
+  };
+
+  let error;
+  if (id) {
+    ({ error } = await DB.from('fp_customers').update(payload).eq('id', id));
+  } else {
+    ({ error } = await DB.from('fp_customers').insert(payload));
+  }
+
+  if (error) { toast('Save failed: ' + error.message, 'error'); return; }
+  toast(id ? 'Customer updated' : 'Customer added');
+  closeModal();
+  bCustomers();
+}
+
+async function delCustomer(id) {
+  if (!confirm('Delete this customer? This cannot be undone.')) return;
+  const { error } = await DB.from('fp_customers').delete().eq('id', id);
+  if (error) { toast('Delete failed: ' + error.message, 'error'); return; }
+  toast('Customer deleted', 'warn');
+  closeModal();
+  bCustomers();
+}
 function bEstimates()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>Estimates coming in Piece 5</p></div>'; }
 function bWorkOrders() { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">🔧</div><p>Work Orders coming in Piece 6</p></div>'; }
 function bDispatch()   { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><p>Dispatch coming in Piece 7</p></div>'; }
