@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Franz Plumbing Management System</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+/* ── Variables ─────────────────────────────────────────────────────────── */
+:root {
+  --navy:        #1B3A6B;
+  --navy-dark:   #132B52;
+  --navy-light:  #2A4E8A;
+  --orange:      #E07B18;
+  --orange-dark: #C56A12;
+  --light-blue:  #D4E1F7;
+  --white:       #FFFFFF;
+  --gray-100:    #F4F6FA;
+  --gray-200:    #E8ECF4;
+  --gray-400:    #9BA8BE;
+  --gray-600:    #5A6880;
+  --gray-800:    #2C3A4F;
+  --success:     #16A34A;
+  --error:       #DC2626;
+  --warning:     #D97706;
+  --radius:      8px;
+  --shadow:      0 2px 12px rgba(27,58,107,0.12);
+  --shadow-lg:   0 8px 32px rgba(27,58,107,0.18);
+}
+
+/* ── Reset ─────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--gray-100); color: var(--gray-800); min-height: 100vh; }
+button { cursor: pointer; font-family: inherit; border: none; outline: none; }
+input, select, textarea { font-family: inherit; outline: none; }
+a { text-decoration: none; color: inherit; }
+
+/* ── Login Screen ──────────────────────────────────────────────────────── */
+#login-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, var(--navy) 0%, var(--navy-dark) 60%, #0D1F3C 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* water-drop decorative circles */
+#login-screen::before {
+  content: '';
+  position: absolute;
+  width: 600px; height: 600px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.03);
+  top: -200px; right: -150px;
+}
+#login-screen::after {
+  content: '';
+  position: absolute;
+  width: 400px; height: 400px;
+  border-radius: 50%;
+  background: rgba(224,123,24,0.07);
+  bottom: -100px; left: -100px;
+}
+
+.login-card {
+  background: var(--white);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 48px 44px 40px;
+  width: 100%;
+  max-width: 420px;
+  position: relative;
+  z-index: 1;
+}
+
+.login-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+
+.login-tagline {
+  text-align: center;
+  color: var(--gray-600);
+  font-size: 13px;
+  margin-top: -20px;
+  margin-bottom: 32px;
+  letter-spacing: 0.3px;
+}
+
+.login-title {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--light-blue);
+}
+
+.form-group {
+  margin-bottom: 18px;
+}
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--navy);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.form-group input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 2px solid var(--gray-200);
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: var(--gray-800);
+  background: var(--gray-100);
+  transition: border-color 0.2s, background 0.2s;
+}
+.form-group input:focus {
+  border-color: var(--navy);
+  background: var(--white);
+}
+
+.btn-login {
+  width: 100%;
+  padding: 13px;
+  background: var(--orange);
+  color: var(--white);
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: var(--radius);
+  margin-top: 8px;
+  letter-spacing: 0.3px;
+  transition: background 0.2s, transform 0.1s;
+}
+.btn-login:hover { background: var(--orange-dark); }
+.btn-login:active { transform: scale(0.99); }
+.btn-login:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.login-error {
+  background: #FEE2E2;
+  color: var(--error);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-top: 12px;
+  display: none;
+}
+.login-error.show { display: block; }
+
+.login-footer {
+  text-align: center;
+  margin-top: 28px;
+  color: var(--gray-400);
+  font-size: 12px;
+}
+
+/* ── App shell (shown after login) ─────────────────────────────────────── */
+#app { display: none; min-height: 100vh; }
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+#toast-wrap {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast {
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--white);
+  box-shadow: var(--shadow);
+  animation: slideIn 0.25s ease;
+  max-width: 320px;
+}
+.toast-success { background: var(--success); }
+.toast-error   { background: var(--error); }
+.toast-warn    { background: var(--warning); }
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Login Screen ───────────────────────────────────────────────────── -->
+<div id="login-screen">
+  <div class="login-card">
+
+    <div class="login-logo">
+      <!-- Franz Plumbing logo SVG recreation -->
+      <svg width="220" height="70" viewBox="0 0 220 70" xmlns="http://www.w3.org/2000/svg">
+        <!-- Water drop shape -->
+        <path d="M33,4 C33,4 10,28 10,44 C10,57.25 20.75,68 34,68 C47.25,68 58,57.25 58,44 C58,28 33,4 33,4 Z" fill="#1B3A6B"/>
+        <!-- Faucet body (horizontal pipe) -->
+        <rect x="20" y="36" width="26" height="6" rx="3" fill="white"/>
+        <!-- Faucet spout (vertical drop) -->
+        <rect x="30" y="42" width="6" height="9" rx="2" fill="white"/>
+        <!-- Water drop from spout -->
+        <circle cx="33" cy="55" r="2.5" fill="white" opacity="0.8"/>
+        <!-- Handle -->
+        <rect x="38" y="33" width="5" height="12" rx="2" fill="white"/>
+        <!-- FRANZ text -->
+        <text x="66" y="36" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="26" fill="#1B3A6B" letter-spacing="1">FRANZ</text>
+        <!-- PLUMBING AND PIPING text -->
+        <text x="67" y="52" font-family="Arial, sans-serif" font-weight="700" font-size="11" fill="#E07B18" letter-spacing="1.5">PLUMBING AND PIPING</text>
+      </svg>
+    </div>
+
+    <p class="login-tagline">Affordable Plumbing Professionals</p>
+
+    <div class="login-title">Management System</div>
+
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="li-email" placeholder="you@franzplumbing.com" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="li-pass" placeholder="••••••••" autocomplete="current-password">
+    </div>
+
+    <button class="btn-login" id="li-btn" onclick="doLogin()">Sign In</button>
+    <div class="login-error" id="li-err"></div>
+
+    <div class="login-footer">Franz Plumbing &amp; Piping, Inc. &bull; Pewaukee, WI</div>
+  </div>
+</div>
+
+<!-- ── App (populated in future chunks) ──────────────────────────────── -->
+<div id="app"></div>
+
+<!-- ── Toast container ───────────────────────────────────────────────── -->
+<div id="toast-wrap"></div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────
+const SUPABASE_URL  = 'https://gedzjjqycxritvekduwv.supabase.co';
+const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlZHpqanF5Y3hyaXR2ZWtkdXd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NzIzNzYsImV4cCI6MjA5MzA0ODM3Nn0.ivWXqbtznxCaUwqOPflIJ5CZD_zf0rbjyqDTMMQrEuE';
+const DB = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let CU = null; // current user
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-wrap').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function hashPwd(p) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(p));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('li-email').value.trim();
+  const pass  = document.getElementById('li-pass').value;
+  const btn   = document.getElementById('li-btn');
+  const err   = document.getElementById('li-err');
+
+  err.classList.remove('show');
+  if (!email || !pass) { showErr('Please enter your email and password.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+
+  try {
+    const hash = await hashPwd(pass);
+    const { data, error } = await DB.from('fp_users')
+      .select('*')
+      .eq('email', email)
+      .eq('password_hash', hash)
+      .eq('active', true)
+      .single();
+
+    if (error || !data) { showErr('Invalid email or password.'); return; }
+
+    CU = data;
+    localStorage.setItem('fp_session', JSON.stringify({ id: data.id, email: data.email, name: data.name, role: data.role }));
+    startApp();
+  } catch(e) {
+    showErr('Connection error. Please try again.');
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+
+  function showErr(msg) {
+    err.textContent = msg;
+    err.classList.add('show');
+  }
+}
+
+function doLogout() {
+  CU = null;
+  localStorage.removeItem('fp_session');
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('li-pass').value = '';
+}
+
+// allow Enter key on login form
+document.getElementById('li-pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('li-email').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('li-pass').focus();
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+function startApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  // App shell will be built in the next chunk
+  document.getElementById('app').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;color:#1B3A6B;">
+      <svg width="80" height="80" viewBox="0 0 220 70" xmlns="http://www.w3.org/2000/svg">
+        <path d="M33,4 C33,4 10,28 10,44 C10,57.25 20.75,68 34,68 C47.25,68 58,57.25 58,44 C58,28 33,4 33,4 Z" fill="#1B3A6B"/>
+        <rect x="20" y="36" width="26" height="6" rx="3" fill="white"/>
+        <rect x="30" y="42" width="6" height="9" rx="2" fill="white"/>
+        <circle cx="33" cy="55" r="2.5" fill="white" opacity="0.8"/>
+        <rect x="38" y="33" width="5" height="12" rx="2" fill="white"/>
+      </svg>
+      <div style="font-size:22px;font-weight:700;">Welcome, ${esc(CU.name)} ✓</div>
+      <div style="font-size:14px;color:#5A6880;">App shell coming in the next chunk.</div>
+      <button onclick="doLogout()" style="margin-top:12px;padding:10px 24px;background:#E07B18;color:white;border-radius:8px;font-weight:600;border:none;cursor:pointer;">Sign Out</button>
+    </div>`;
+  toast(`Welcome back, ${CU.name}!`);
+}
+
+// Check for saved session on load
+(function checkSession() {
+  const saved = localStorage.getItem('fp_session');
+  if (saved) {
+    try {
+      const s = JSON.parse(saved);
+      // Re-verify against DB
+      DB.from('fp_users').select('*').eq('id', s.id).eq('active', true).single()
+        .then(({ data }) => {
+          if (data) { CU = data; startApp(); }
+        });
+    } catch(e) { localStorage.removeItem('fp_session'); }
+  }
+})();
+</script>
+</body>
+</html>
