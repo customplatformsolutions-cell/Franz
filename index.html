@@ -1055,7 +1055,315 @@ async function delCustomer(id) {
   closeModal();
   bCustomers();
 }
-function bEstimates()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>Estimates coming in Piece 5</p></div>'; }
+// ── ESTIMATES ────────────────────────────────────────────────────────────
+let _estimates = [], _pricebook = [], _estFilter = 'All';
+
+async function bEstimates() {
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading…</p></div>`;
+  const [estRes, pbRes, custRes] = await Promise.all([
+    DB.from('fp_estimates').select('*, fp_customers(first_name,last_name,company)').order('created_at',{ascending:false}),
+    DB.from('fp_pricebook').select('*').eq('active',true).order('category'),
+    DB.from('fp_customers').select('id,first_name,last_name,company').order('last_name')
+  ]);
+  _estimates = estRes.data || [];
+  _pricebook = pbRes.data || [];
+  if (custRes.data) _customers = custRes.data;
+  renderEstimates();
+}
+
+function renderEstimates() {
+  const filters = ['All','Draft','Sent','Accepted','Declined'];
+  const list = _estFilter === 'All' ? _estimates : _estimates.filter(e => e.status === _estFilter);
+  const badgeClass = s => ({Draft:'badge-gray',Sent:'badge-blue',Accepted:'badge-green',Declined:'badge-red'}[s]||'badge-gray');
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `
+    <div class="page-header">
+      <h1>Estimates</h1>
+      <button class="btn btn-orange" onclick="oAddEstimate()">+ New Estimate</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:18px">
+      ${filters.map(f => {
+        const count = f==='All' ? _estimates.length : _estimates.filter(e=>e.status===f).length;
+        return `<button class="btn btn-sm ${_estFilter===f?'btn-primary':'btn-ghost'}" onclick="_estFilter='${f}';renderEstimates()">${f} <span style="opacity:0.7">(${count})</span></button>`;
+      }).join('')}
+    </div>
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Estimate #</th><th>Customer</th><th>Total</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${list.length === 0
+              ? `<tr><td colspan="6"><div class="empty-state"><p>No ${_estFilter==='All'?'':_estFilter.toLowerCase()+' '}estimates</p></div></td></tr>`
+              : list.map(e => {
+                  const c = e.fp_customers;
+                  const name = c ? `${c.first_name} ${c.last_name}${c.company?` — ${c.company}`:''}` : '—';
+                  return `<tr>
+                    <td><strong>${esc(e.estimate_number)}</strong></td>
+                    <td>${esc(name)}</td>
+                    <td><strong>$${Number(e.total||0).toFixed(2)}</strong></td>
+                    <td><span class="badge ${badgeClass(e.status)}">${esc(e.status)}</span></td>
+                    <td style="font-size:13px;color:var(--gray-400)">${e.created_at?new Date(e.created_at).toLocaleDateString():'—'}</td>
+                    <td style="display:flex;gap:6px">
+                      <button class="btn btn-sm btn-ghost" onclick="oEditEstimate('${e.id}')">✏️ Edit</button>
+                      <button class="btn btn-sm btn-ghost" onclick="printEstimate('${e.id}')">🖨️</button>
+                    </td>
+                  </tr>`;
+                }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function oAddEstimate(prefillCustomerId) {
+  const custOpts = _customers.map(c=>`<option value="${c.id}" ${c.id===prefillCustomerId?'selected':''}>${esc(c.first_name)} ${esc(c.last_name)}${c.company?' — '+esc(c.company):''}</option>`).join('');
+  const nextNum = 'EST-' + String((_estimates.length + 1)).padStart(4,'0');
+  showModal(`
+    <div class="modal" style="max-width:700px">
+      <div class="modal-header">
+        <h2>New Estimate</h2>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>Estimate #</label><input id="ef-num" value="${nextNum}"></div>
+          <div class="field"><label>Status</label>
+            <select id="ef-status"><option>Draft</option><option>Sent</option><option>Accepted</option><option>Declined</option></select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Customer *</label>
+            <select id="ef-cust"><option value="">— Select Customer —</option>${custOpts}</select>
+          </div>
+          <div class="field"><label>Valid Until</label><input id="ef-valid" type="date"></div>
+        </div>
+        <div class="field"><label>Line Items</label>
+          <div id="ef-lines"></div>
+          <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="addEstimateLine()">+ Add Line</button>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px">
+          <div style="width:220px">
+            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span>Subtotal</span><span id="ef-subtotal">$0.00</span></div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;align-items:center">
+              <span>Tax <input id="ef-tax-rate" type="number" value="5.5" step="0.1" min="0" style="width:52px;padding:2px 6px;border:1px solid var(--gray-200);border-radius:4px;font-size:13px" oninput="calcEstTotals()">%</span>
+              <span id="ef-tax">$0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0;font-size:16px;font-weight:700;border-top:2px solid var(--navy);color:var(--navy)"><span>Total</span><span id="ef-total">$0.00</span></div>
+          </div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="ef-notes" placeholder="Scope of work, terms, etc."></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="svEstimate(null)">Save Estimate</button>
+      </div>
+    </div>`);
+  addEstimateLine();
+}
+
+function oEditEstimate(id) {
+  const e = _estimates.find(x=>x.id===id);
+  if (!e) return;
+  const custOpts = _customers.map(c=>`<option value="${c.id}" ${c.id===e.customer_id?'selected':''}>${esc(c.first_name)} ${esc(c.last_name)}${c.company?' — '+esc(c.company):''}</option>`).join('');
+  showModal(`
+    <div class="modal" style="max-width:700px">
+      <div class="modal-header">
+        <h2>Edit Estimate — ${esc(e.estimate_number)}</h2>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>Estimate #</label><input id="ef-num" value="${esc(e.estimate_number)}"></div>
+          <div class="field"><label>Status</label>
+            <select id="ef-status">${['Draft','Sent','Accepted','Declined'].map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Customer *</label>
+            <select id="ef-cust"><option value="">— Select Customer —</option>${custOpts}</select>
+          </div>
+          <div class="field"><label>Valid Until</label><input id="ef-valid" type="date" value="${e.valid_until||''}"></div>
+        </div>
+        <div class="field"><label>Line Items</label>
+          <div id="ef-lines"></div>
+          <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="addEstimateLine()">+ Add Line</button>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px">
+          <div style="width:220px">
+            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span>Subtotal</span><span id="ef-subtotal">$0.00</span></div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;align-items:center">
+              <span>Tax <input id="ef-tax-rate" type="number" value="${e.tax_rate||5.5}" step="0.1" min="0" style="width:52px;padding:2px 6px;border:1px solid var(--gray-200);border-radius:4px;font-size:13px" oninput="calcEstTotals()">%</span>
+              <span id="ef-tax">$0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0;font-size:16px;font-weight:700;border-top:2px solid var(--navy);color:var(--navy)"><span>Total</span><span id="ef-total">$0.00</span></div>
+          </div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="ef-notes">${esc(e.notes||'')}</textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger btn-sm" onclick="delEstimate('${e.id}')">🗑 Delete</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-ghost" onclick="printEstimate('${e.id}')">🖨️ Print</button>
+        <button class="btn btn-primary" onclick="svEstimate('${e.id}')">Save Changes</button>
+      </div>
+    </div>`);
+  // Load existing lines
+  const lines = e.line_items || [];
+  if (lines.length === 0) { addEstimateLine(); }
+  else { lines.forEach(l => addEstimateLine(l)); }
+  calcEstTotals();
+}
+
+let _lineCount = 0;
+function addEstimateLine(data) {
+  const i = _lineCount++;
+  const pbOpts = `<option value="">— Pricebook —</option>` + _pricebook.map(p=>`<option value="${p.id}" data-price="${p.price}">${esc(p.name)} ($${Number(p.price).toFixed(2)})</option>`).join('');
+  const wrap = document.getElementById('ef-lines');
+  const div = document.createElement('div');
+  div.id = `line-${i}`;
+  div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:center';
+  div.innerHTML = `
+    <input placeholder="Description" id="ld-${i}" value="${esc(data?.description||'')}" oninput="calcEstTotals()" style="padding:8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:13px">
+    <input type="number" placeholder="Qty" id="lq-${i}" value="${data?.qty||1}" min="0" step="any" oninput="calcEstTotals()" style="padding:8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:13px;text-align:center">
+    <input type="number" placeholder="Price" id="lp-${i}" value="${data?.price||''}" min="0" step="0.01" oninput="calcEstTotals()" style="padding:8px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:13px;text-align:right">
+    <button onclick="document.getElementById('line-${i}').remove();calcEstTotals()" style="padding:6px 10px;background:#FEE2E2;color:var(--error);border:none;border-radius:6px;cursor:pointer;font-size:14px">×</button>`;
+  // Pricebook picker row
+  const pbRow = document.createElement('div');
+  pbRow.style.cssText = 'margin-bottom:10px;margin-top:-4px';
+  pbRow.innerHTML = `<select onchange="pickPbItem(this,${i})" style="width:100%;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;color:var(--gray-600)">${pbOpts}</select>`;
+  wrap.appendChild(div);
+  wrap.appendChild(pbRow);
+}
+
+function pickPbItem(sel, i) {
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt.value) return;
+  document.getElementById(`ld-${i}`).value = opt.text.replace(/ \(\$[\d.]+\)$/,'');
+  document.getElementById(`lp-${i}`).value = opt.dataset.price;
+  document.getElementById(`lq-${i}`).value = 1;
+  calcEstTotals();
+  sel.selectedIndex = 0;
+}
+
+function calcEstTotals() {
+  let subtotal = 0;
+  document.querySelectorAll('[id^="lq-"]').forEach(qEl => {
+    const i = qEl.id.split('-')[1];
+    const q = parseFloat(qEl.value)||0;
+    const p = parseFloat(document.getElementById(`lp-${i}`)?.value)||0;
+    subtotal += q * p;
+  });
+  const rate = parseFloat(document.getElementById('ef-tax-rate')?.value)||0;
+  const tax  = subtotal * rate / 100;
+  const total = subtotal + tax;
+  const s = el => document.getElementById(el);
+  if(s('ef-subtotal')) s('ef-subtotal').textContent = '$'+subtotal.toFixed(2);
+  if(s('ef-tax'))      s('ef-tax').textContent      = '$'+tax.toFixed(2);
+  if(s('ef-total'))    s('ef-total').textContent    = '$'+total.toFixed(2);
+}
+
+function getEstimateLines() {
+  const lines = [];
+  document.querySelectorAll('[id^="lq-"]').forEach(qEl => {
+    const i = qEl.id.split('-')[1];
+    const desc  = document.getElementById(`ld-${i}`)?.value.trim();
+    const qty   = parseFloat(qEl.value)||0;
+    const price = parseFloat(document.getElementById(`lp-${i}`)?.value)||0;
+    if (desc || qty || price) lines.push({ description: desc, qty, price, total: qty*price });
+  });
+  return lines;
+}
+
+async function svEstimate(id) {
+  const custId = document.getElementById('ef-cust').value;
+  const num    = document.getElementById('ef-num').value.trim();
+  if (!custId) { toast('Please select a customer', 'warn'); return; }
+  if (!num)    { toast('Estimate number is required', 'warn'); return; }
+
+  const lines    = getEstimateLines();
+  const taxRate  = parseFloat(document.getElementById('ef-tax-rate').value)||0;
+  const subtotal = lines.reduce((s,l)=>s+l.total,0);
+  const tax      = subtotal * taxRate / 100;
+
+  const payload = {
+    customer_id:     custId,
+    estimate_number: num,
+    status:          document.getElementById('ef-status').value,
+    line_items:      lines,
+    subtotal, tax_rate: taxRate, tax,
+    total:           subtotal + tax,
+    notes:           document.getElementById('ef-notes').value.trim() || null,
+    valid_until:     document.getElementById('ef-valid').value || null,
+    created_by:      CU.id
+  };
+
+  let error;
+  if (id) {
+    ({ error } = await DB.from('fp_estimates').update(payload).eq('id', id));
+  } else {
+    ({ error } = await DB.from('fp_estimates').insert(payload));
+  }
+  if (error) { toast('Save failed: ' + error.message, 'error'); return; }
+  toast(id ? 'Estimate updated' : 'Estimate created');
+  closeModal();
+  bEstimates();
+}
+
+async function delEstimate(id) {
+  if (!confirm('Delete this estimate?')) return;
+  const { error } = await DB.from('fp_estimates').delete().eq('id', id);
+  if (error) { toast('Delete failed: ' + error.message, 'error'); return; }
+  toast('Estimate deleted', 'warn');
+  closeModal();
+  bEstimates();
+}
+
+function printEstimate(id) {
+  const e = _estimates.find(x=>x.id===id);
+  if (!e) return;
+  const c = e.fp_customers || _customers.find(x=>x.id===e.customer_id);
+  const custName = c ? `${c.first_name} ${c.last_name}${c.company?'\n'+c.company:''}` : '—';
+  const lines = (e.line_items||[]).map(l=>`
+    <tr><td>${esc(l.description)}</td><td style="text-align:center">${l.qty}</td>
+    <td style="text-align:right">$${Number(l.price).toFixed(2)}</td>
+    <td style="text-align:right">$${Number(l.total).toFixed(2)}</td></tr>`).join('');
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><title>Estimate ${esc(e.estimate_number)}</title>
+  <style>body{font-family:Arial,sans-serif;padding:40px;color:#1B3A6B;max-width:800px;margin:0 auto}
+  h1{color:#1B3A6B;font-size:28px}h2{color:#E07B18;font-size:13px;text-transform:uppercase;letter-spacing:1px}
+  table{width:100%;border-collapse:collapse;margin:20px 0}th{background:#1B3A6B;color:white;padding:10px;text-align:left}
+  td{padding:9px 10px;border-bottom:1px solid #eee}.total-row{font-weight:700;font-size:16px}
+  .header{display:flex;justify-content:space-between;margin-bottom:32px}
+  .badge{display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700;background:#DBEAFE;color:#1D4ED8}
+  @media print{button{display:none}}</style></head><body>
+  <div class="header">
+    <div><h1>ESTIMATE</h1><div style="font-size:22px;font-weight:900;color:#E07B18">${esc(e.estimate_number)}</div>
+      <div style="margin-top:8px;font-size:13px">Date: ${e.created_at?new Date(e.created_at).toLocaleDateString():'—'}</div>
+      ${e.valid_until?`<div style="font-size:13px">Valid Until: ${new Date(e.valid_until+'T12:00').toLocaleDateString()}</div>`:''}
+      <div style="margin-top:6px"><span class="badge">${esc(e.status)}</span></div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-weight:900;font-size:18px;color:#1B3A6B">FRANZ</div>
+      <div style="font-weight:700;color:#E07B18;font-size:12px">PLUMBING AND PIPING</div>
+      <div style="font-size:12px;margin-top:4px">N39W27341 Hillside Grove<br>Pewaukee, WI 53072<br>(262) 746-9702</div>
+    </div>
+  </div>
+  <h2>Bill To</h2>
+  <div style="font-size:15px;font-weight:600;white-space:pre-line">${custName}</div>
+  <table><thead><tr><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th></tr></thead>
+  <tbody>${lines}</tbody></table>
+  <div style="display:flex;justify-content:flex-end"><div style="width:240px">
+    <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span>Subtotal</span><span>$${Number(e.subtotal||0).toFixed(2)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span>Tax (${e.tax_rate||0}%)</span><span>$${Number(e.tax||0).toFixed(2)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:10px 0;font-size:18px;font-weight:800;border-top:3px solid #1B3A6B;color:#1B3A6B"><span>TOTAL</span><span>$${Number(e.total||0).toFixed(2)}</span></div>
+  </div></div>
+  ${e.notes?`<h2>Notes</h2><p style="font-size:14px">${esc(e.notes)}</p>`:''}
+  <div style="margin-top:40px;border-top:1px solid #eee;padding-top:20px;font-size:12px;color:#888">Thank you for choosing Franz Plumbing &amp; Piping, Inc. — Affordable Plumbing Professionals</div>
+  <br><button onclick="window.print()" style="padding:10px 24px;background:#E07B18;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ Print / Save PDF</button>
+  </body></html>`);
+  w.document.close();
+}
 function bWorkOrders() { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">🔧</div><p>Work Orders coming in Piece 6</p></div>'; }
 function bDispatch()   { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><p>Dispatch coming in Piece 7</p></div>'; }
 function bInventory()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div><p>Inventory coming in Piece 8</p></div>'; }
