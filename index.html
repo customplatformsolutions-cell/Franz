@@ -2154,7 +2154,314 @@ async function rejectTime(id) {
   toast('Rejected','warn');
   renderTimesheet();
 }
-function bAdmin()      { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⚙️</div><p>Admin coming in Piece 10</p></div>'; }
+// ── ADMIN ────────────────────────────────────────────────────────────────
+let _adminTab = 'users';
+
+async function bAdmin() {
+  if (CU.role !== 'admin') {
+    document.getElementById('page-content').innerHTML = `<div class="empty-state"><div class="empty-icon">🔒</div><p>Admin access only</p></div>`;
+    return;
+  }
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading…</p></div>`;
+  const [userRes, pbRes, locRes] = await Promise.all([
+    DB.from('fp_users').select('*').order('name'),
+    DB.from('fp_pricebook').select('*').order('category,name'),
+    DB.from('fp_inv_locations').select('*').order('name')
+  ]);
+  _users        = userRes.data || [];
+  _pricebook    = pbRes.data   || [];
+  _invLocations = locRes.data  || [];
+  renderAdminTab();
+}
+
+function renderAdminTab() {
+  const tabs = ['users','pricebook','locations'];
+  const labels = { users:'👤 Users', pricebook:'📋 Pricebook', locations:'📍 Locations' };
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `
+    <div class="page-header">
+      <h1>Admin</h1>
+      <div style="display:flex;gap:8px">
+        ${_adminTab==='users'     ? `<button class="btn btn-orange" onclick="oAddUser()">+ Add User</button>` : ''}
+        ${_adminTab==='pricebook' ? `<button class="btn btn-orange" onclick="oAddPbItem()">+ Add Service</button>` : ''}
+        ${_adminTab==='locations' ? `<button class="btn btn-orange" onclick="oAddLocation()">+ Add Location</button>` : ''}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:20px">
+      ${tabs.map(t=>`<button class="btn btn-sm ${_adminTab===t?'btn-primary':'btn-ghost'}" onclick="_adminTab='${t}';renderAdminTab()">${labels[t]}</button>`).join('')}
+    </div>
+    <div id="admin-body"></div>`;
+  if (_adminTab==='users')     renderAdminUsers();
+  if (_adminTab==='pricebook') renderAdminPricebook();
+  if (_adminTab==='locations') renderAdminLocations();
+}
+
+// ── Users ──────────────────────────────────────────────────────────────
+function renderAdminUsers() {
+  document.getElementById('admin-body').innerHTML = `
+    <div class="card" style="padding:0">
+      <div class="table-wrap"><table>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Phone</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${_users.map(u=>`
+            <tr>
+              <td><strong>${esc(u.name)}</strong></td>
+              <td style="font-size:13px">${esc(u.email)}</td>
+              <td><span class="badge ${u.role==='admin'?'badge-orange':'badge-blue'}">${esc(u.role)}</span></td>
+              <td style="font-size:13px">${esc(u.phone||'—')}</td>
+              <td><span class="badge ${u.active?'badge-green':'badge-red'}">${u.active?'Active':'Inactive'}</span></td>
+              <td><button class="btn btn-sm btn-ghost" onclick="oEditUser('${u.id}')">✏️ Edit</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+}
+
+function userModalHTML(u) {
+  const isEdit = !!u;
+  return `
+    <div class="modal">
+      <div class="modal-header"><h2>${isEdit?'Edit User':'Add User'}</h2><button class="modal-close" onclick="closeModal()">×</button></div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>Full Name *</label><input id="uf-name" value="${isEdit?esc(u.name):''}"></div>
+          <div class="field"><label>Phone</label><input id="uf-phone" value="${isEdit?esc(u.phone||''):''}" type="tel"></div>
+        </div>
+        <div class="field"><label>Email *</label><input id="uf-email" value="${isEdit?esc(u.email):''}" type="email"></div>
+        <div class="field-row">
+          <div class="field"><label>Role</label>
+            <select id="uf-role">
+              <option value="tech"  ${isEdit&&u.role==='tech' ?'selected':''}>Tech</option>
+              <option value="admin" ${isEdit&&u.role==='admin'?'selected':''}>Admin</option>
+            </select>
+          </div>
+          <div class="field"><label>Status</label>
+            <select id="uf-active">
+              <option value="true"  ${!isEdit||u.active ?'selected':''}>Active</option>
+              <option value="false" ${isEdit&&!u.active ?'selected':''}>Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>${isEdit?'New Password (leave blank to keep current)':'Password *'}</label>
+          <input id="uf-pass" type="password" placeholder="${isEdit?'Leave blank to keep current':'Minimum 8 characters'}">
+        </div>
+      </div>
+      <div class="modal-footer">
+        ${isEdit&&u.id!==CU.id?`<button class="btn btn-danger btn-sm" onclick="delUser('${u.id}')">🗑 Delete</button>`:''}
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-orange" onclick="svUser(${isEdit?`'${u.id}'`:null})">Save</button>
+      </div>
+    </div>`;
+}
+
+function oAddUser()      { showModal(userModalHTML(null)); }
+function oEditUser(id)   { showModal(userModalHTML(_users.find(u=>u.id===id))); }
+
+async function svUser(id) {
+  const name  = document.getElementById('uf-name').value.trim();
+  const email = document.getElementById('uf-email').value.trim();
+  const pass  = document.getElementById('uf-pass').value;
+  if (!name||!email) { toast('Name and email are required','warn'); return; }
+  if (!id && !pass)  { toast('Password is required for new users','warn'); return; }
+
+  const payload = {
+    name, email,
+    phone:  document.getElementById('uf-phone').value.trim()||null,
+    role:   document.getElementById('uf-role').value,
+    active: document.getElementById('uf-active').value === 'true',
+  };
+  if (pass) payload.password_hash = await hashPwd(pass);
+
+  let error;
+  if (id) { ({error} = await DB.from('fp_users').update(payload).eq('id',id)); }
+  else    { ({error} = await DB.from('fp_users').insert(payload)); }
+  if (error) { toast('Save failed: '+error.message,'error'); return; }
+  toast(id?'User updated':'User added');
+  closeModal(); bAdmin();
+}
+
+async function delUser(id) {
+  if (!confirm('Delete this user?')) return;
+  await DB.from('fp_users').delete().eq('id',id);
+  toast('User deleted','warn'); closeModal(); bAdmin();
+}
+
+// ── Pricebook ──────────────────────────────────────────────────────────
+function renderAdminPricebook() {
+  const categories = [...new Set(_pricebook.map(p=>p.category||'Uncategorized'))].sort();
+  document.getElementById('admin-body').innerHTML = `
+    <div class="card" style="padding:0">
+      <div class="table-wrap"><table>
+        <thead><tr><th>Service Name</th><th>Category</th><th>Unit</th><th>Price</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${_pricebook.length===0?`<tr><td colspan="6"><div class="empty-state"><p>No services yet</p></div></td></tr>`
+            : _pricebook.map(p=>`
+              <tr>
+                <td><strong>${esc(p.name)}</strong>${p.description?`<br><span style="font-size:12px;color:var(--gray-400)">${esc(p.description)}</span>`:''}</td>
+                <td><span class="badge badge-blue" style="font-size:10px">${esc(p.category||'—')}</span></td>
+                <td style="font-size:13px">${esc(p.unit)}</td>
+                <td><strong>$${Number(p.price).toFixed(2)}</strong></td>
+                <td><span class="badge ${p.active?'badge-green':'badge-gray'}">${p.active?'Active':'Hidden'}</span></td>
+                <td><button class="btn btn-sm btn-ghost" onclick="oEditPbItem('${p.id}')">✏️ Edit</button></td>
+              </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+}
+
+function pbModalHTML(p) {
+  const isEdit = !!p;
+  return `
+    <div class="modal">
+      <div class="modal-header"><h2>${isEdit?'Edit Service':'Add Service'}</h2><button class="modal-close" onclick="closeModal()">×</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Service Name *</label><input id="pf-name" value="${isEdit?esc(p.name):''}"></div>
+        <div class="field"><label>Description</label><input id="pf-desc" value="${isEdit?esc(p.description||''):''}" placeholder="Short description for estimates"></div>
+        <div class="field-row">
+          <div class="field"><label>Category</label><input id="pf-cat" value="${isEdit?esc(p.category||''):''}" placeholder="e.g. Labor, Fixtures"></div>
+          <div class="field"><label>Unit</label>
+            <select id="pf-unit">${['Each','Hour','Foot','Gallon','Day'].map(u=>`<option ${(isEdit?p.unit:'')==u?'selected':''}>${u}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Price ($) *</label><input id="pf-price" type="number" min="0" step="0.01" value="${isEdit?p.price:''}"></div>
+          <div class="field"><label>Visible on Estimates</label>
+            <select id="pf-active"><option value="true" ${!isEdit||p.active?'selected':''}>Yes</option><option value="false" ${isEdit&&!p.active?'selected':''}>No</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        ${isEdit?`<button class="btn btn-danger btn-sm" onclick="delPbItem('${p.id}')">🗑 Delete</button>`:''}
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-orange" onclick="svPbItem(${isEdit?`'${p.id}'`:null})">Save</button>
+      </div>
+    </div>`;
+}
+
+function oAddPbItem()    { showModal(pbModalHTML(null)); }
+function oEditPbItem(id) { showModal(pbModalHTML(_pricebook.find(p=>p.id===id))); }
+
+async function svPbItem(id) {
+  const name = document.getElementById('pf-name').value.trim();
+  if (!name) { toast('Service name is required','warn'); return; }
+  const payload = {
+    name, description: document.getElementById('pf-desc').value.trim()||null,
+    category: document.getElementById('pf-cat').value.trim()||null,
+    unit:     document.getElementById('pf-unit').value,
+    price:    parseFloat(document.getElementById('pf-price').value)||0,
+    active:   document.getElementById('pf-active').value==='true',
+  };
+  let error;
+  if (id) { ({error} = await DB.from('fp_pricebook').update(payload).eq('id',id)); }
+  else    { ({error} = await DB.from('fp_pricebook').insert(payload)); }
+  if (error) { toast('Save failed: '+error.message,'error'); return; }
+  toast(id?'Service updated':'Service added'); closeModal(); bAdmin();
+}
+
+async function delPbItem(id) {
+  if (!confirm('Delete this service?')) return;
+  await DB.from('fp_pricebook').delete().eq('id',id);
+  toast('Service deleted','warn'); closeModal(); bAdmin();
+}
+
+// ── Locations ──────────────────────────────────────────────────────────
+function renderAdminLocations() {
+  document.getElementById('admin-body').innerHTML = `
+    <div class="card" style="padding:0">
+      <div class="table-wrap"><table>
+        <thead><tr><th>Name</th><th>Type</th><th>Address</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${_invLocations.length===0?`<tr><td colspan="5"><div class="empty-state"><p>No locations yet</p></div></td></tr>`
+            : _invLocations.map(l=>`
+              <tr>
+                <td><strong>${l.type==='van'?'🚐':'🏭'} ${esc(l.name)}</strong></td>
+                <td><span class="badge ${l.type==='van'?'badge-orange':'badge-blue'}">${l.type}</span></td>
+                <td style="font-size:13px">${esc(l.address||'—')}</td>
+                <td><span class="badge ${l.active?'badge-green':'badge-gray'}">${l.active?'Active':'Inactive'}</span></td>
+                <td><button class="btn btn-sm btn-ghost" onclick="oEditLocation('${l.id}')">✏️ Edit</button></td>
+              </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+}
+
+function locModalHTML(l) {
+  const isEdit = !!l;
+  const techOpts = _users.map(u=>`<option value="${u.id}" ${isEdit&&l.tech_id===u.id?'selected':''}>${esc(u.name)}</option>`).join('');
+  return `
+    <div class="modal">
+      <div class="modal-header"><h2>${isEdit?'Edit Location':'Add Location'}</h2><button class="modal-close" onclick="closeModal()">×</button></div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>Name *</label><input id="lf-name" value="${isEdit?esc(l.name):''}"></div>
+          <div class="field"><label>Type</label>
+            <select id="lf-type"><option value="warehouse" ${!isEdit||l.type==='warehouse'?'selected':''}>Warehouse</option><option value="van" ${isEdit&&l.type==='van'?'selected':''}>Van</option></select>
+          </div>
+        </div>
+        <div class="field"><label>Address</label><input id="lf-addr" value="${isEdit?esc(l.address||''):''}" placeholder="Street address"></div>
+        <div class="field-row">
+          <div class="field"><label>Assigned Tech (vans)</label>
+            <select id="lf-tech"><option value="">— None —</option>${techOpts}</select>
+          </div>
+          <div class="field"><label>Active</label>
+            <select id="lf-active"><option value="true" ${!isEdit||l.active?'selected':''}>Yes</option><option value="false" ${isEdit&&!l.active?'selected':''}>No</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-orange" onclick="svLocation(${isEdit?`'${l.id}'`:null})">Save</button>
+      </div>
+    </div>`;
+}
+
+function oAddLocation()    { showModal(locModalHTML(null)); }
+function oEditLocation(id) { showModal(locModalHTML(_invLocations.find(l=>l.id===id))); }
+
+async function svLocation(id) {
+  const name = document.getElementById('lf-name').value.trim();
+  if (!name) { toast('Name is required','warn'); return; }
+  const payload = {
+    name, type:    document.getElementById('lf-type').value,
+    address: document.getElementById('lf-addr').value.trim()||null,
+    tech_id: document.getElementById('lf-tech').value||null,
+    active:  document.getElementById('lf-active').value==='true',
+  };
+  let error;
+  if (id) { ({error} = await DB.from('fp_inv_locations').update(payload).eq('id',id)); }
+  else    { ({error} = await DB.from('fp_inv_locations').insert(payload)); }
+  if (error) { toast('Save failed: '+error.message,'error'); return; }
+  toast(id?'Location updated':'Location added'); closeModal(); bAdmin();
+}
+
+// ── Phone stub ────────────────────────────────────────────────────────────
+function bPhone() {
+  document.getElementById('page-content').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;min-height:60vh">
+      <div style="text-align:center;max-width:480px">
+        <div style="font-size:64px;margin-bottom:20px">☎️</div>
+        <h2 style="font-size:24px;font-weight:800;color:var(--navy);margin-bottom:12px">Phone System</h2>
+        <p style="color:var(--gray-600);font-size:15px;margin-bottom:28px;line-height:1.6">
+          Integrated phone with inbound/outbound calling, voicemail, call recording, and SMS — available as an add-on.
+        </p>
+        <div style="background:var(--light-blue);border-radius:12px;padding:24px;margin-bottom:24px;text-align:left">
+          <div style="font-weight:700;color:var(--navy);margin-bottom:12px">Included features:</div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--gray-600)">
+            <div>📞 Click-to-call from any customer record</div>
+            <div>📩 Voicemail with email notifications</div>
+            <div>🎙️ Automatic call recording</div>
+            <div>💬 Two-way SMS messaging</div>
+            <div>📊 Call center monitor & rep activity</div>
+          </div>
+        </div>
+        <div style="background:var(--orange);color:white;border-radius:8px;padding:12px 20px;font-size:13px;font-weight:600">
+          Contact Custom Platform Solutions to activate
+        </div>
+      </div>
+    </div>`;
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 function startApp() {
