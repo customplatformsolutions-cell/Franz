@@ -1685,7 +1685,260 @@ async function quickStatusWO(id, status) {
   toast(`Marked ${status}`);
   bDispatch();
 }
-function bInventory()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div><p>Inventory coming in Piece 8</p></div>'; }
+// ── INVENTORY ────────────────────────────────────────────────────────────
+let _invItems = [], _invLocations = [], _invStock = [], _invTab = 'stock';
+
+async function bInventory() {
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading…</p></div>`;
+  const [itemRes, locRes, stockRes] = await Promise.all([
+    DB.from('fp_inv_items').select('*').eq('active',true).order('name'),
+    DB.from('fp_inv_locations').select('*').eq('active',true).order('name'),
+    DB.from('fp_inv_stock').select('*, fp_inv_items(name,sku,category,unit), fp_inv_locations(name,type)')
+  ]);
+  _invItems     = itemRes.data  || [];
+  _invLocations = locRes.data   || [];
+  _invStock     = stockRes.data || [];
+  renderInvTab();
+}
+
+function renderInvTab() {
+  const tabs = ['stock','items','transfers'];
+  const labels = {stock:'📦 Stock Levels', items:'🔩 Items', transfers:'🔄 Transfer Log'};
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `
+    <div class="page-header">
+      <h1>Inventory</h1>
+      <div style="display:flex;gap:8px">
+        ${_invTab==='stock'    ? `<button class="btn btn-ghost" onclick="oTransfer()">🔄 Transfer Stock</button>` : ''}
+        ${_invTab==='items'    ? `<button class="btn btn-orange" onclick="oAddInvItem()">+ Add Item</button>` : ''}
+        ${_invTab==='transfers'? `` : ''}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:20px">
+      ${tabs.map(t=>`<button class="btn btn-sm ${_invTab===t?'btn-primary':'btn-ghost'}" onclick="_invTab='${t}';renderInvTab()">${labels[t]}</button>`).join('')}
+    </div>
+    <div id="inv-body"></div>`;
+  if (_invTab==='stock')     renderInvStock();
+  if (_invTab==='items')     renderInvItems();
+  if (_invTab==='transfers') renderInvTransfers();
+}
+
+function renderInvStock() {
+  const body = document.getElementById('inv-body');
+  if (_invLocations.length === 0) {
+    body.innerHTML = `<div class="empty-state"><p>No locations set up yet — add them in Admin</p></div>`;
+    return;
+  }
+  body.innerHTML = _invLocations.map(loc => {
+    const locStock = _invStock.filter(s => s.location_id === loc.id && s.quantity > 0);
+    const icon = loc.type === 'van' ? '🚐' : '🏭';
+    return `
+      <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
+        <div style="padding:14px 18px;background:var(--navy);color:white;display:flex;align-items:center;justify-content:space-between">
+          <div style="font-weight:700;font-size:15px">${icon} ${esc(loc.name)}</div>
+          <span style="font-size:12px;opacity:0.6;text-transform:uppercase;letter-spacing:1px">${loc.type}</span>
+        </div>
+        ${locStock.length === 0
+          ? `<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">No stock at this location</div>`
+          : `<div class="table-wrap"><table>
+              <thead><tr><th>Item</th><th>SKU</th><th>Category</th><th>Unit</th><th style="text-align:right">Qty</th><th>Actions</th></tr></thead>
+              <tbody>
+                ${locStock.map(s=>`
+                  <tr>
+                    <td><strong>${esc(s.fp_inv_items?.name||'—')}</strong></td>
+                    <td style="font-size:12px;color:var(--gray-400)">${esc(s.fp_inv_items?.sku||'—')}</td>
+                    <td><span class="badge badge-blue" style="font-size:10px">${esc(s.fp_inv_items?.category||'—')}</span></td>
+                    <td style="font-size:13px">${esc(s.fp_inv_items?.unit||'Each')}</td>
+                    <td style="text-align:right;font-weight:700;color:${s.quantity<=2?'var(--error)':'var(--navy)'}">${s.quantity}</td>
+                    <td><button class="btn btn-sm btn-ghost" onclick="oTransfer('${s.item_id}','${loc.id}')">Transfer</button></td>
+                  </tr>`).join('')}
+              </tbody>
+            </table></div>`
+        }
+      </div>`;
+  }).join('');
+}
+
+function renderInvItems() {
+  document.getElementById('inv-body').innerHTML = `
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th>Unit</th><th>Cost</th><th>Sale Price</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${_invItems.length === 0
+              ? `<tr><td colspan="7"><div class="empty-state"><p>No items yet — add your first one</p></div></td></tr>`
+              : _invItems.map(i=>`
+                <tr>
+                  <td><strong>${esc(i.name)}</strong></td>
+                  <td style="font-size:12px;color:var(--gray-400)">${esc(i.sku||'—')}</td>
+                  <td><span class="badge badge-blue" style="font-size:10px">${esc(i.category||'—')}</span></td>
+                  <td style="font-size:13px">${esc(i.unit)}</td>
+                  <td>$${Number(i.cost_price||0).toFixed(2)}</td>
+                  <td><strong>$${Number(i.sale_price||0).toFixed(2)}</strong></td>
+                  <td><button class="btn btn-sm btn-ghost" onclick="oEditInvItem('${i.id}')">✏️ Edit</button></td>
+                </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function renderInvTransfers() {
+  const { data } = await DB.from('fp_inv_transfers')
+    .select('*, fp_inv_items(name), from:from_location_id(name), to:to_location_id(name), fp_users(name)')
+    .order('transferred_at',{ascending:false}).limit(100);
+  document.getElementById('inv-body').innerHTML = `
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>From</th><th>To</th><th>By</th><th>Notes</th></tr></thead>
+          <tbody>
+            ${!data||data.length===0
+              ? `<tr><td colspan="7"><div class="empty-state"><p>No transfers yet</p></div></td></tr>`
+              : data.map(t=>`
+                <tr>
+                  <td style="font-size:12px;color:var(--gray-400)">${new Date(t.transferred_at).toLocaleDateString()}</td>
+                  <td><strong>${esc(t.fp_inv_items?.name||'—')}</strong></td>
+                  <td style="font-weight:700;color:var(--navy)">${t.quantity}</td>
+                  <td>${esc(t.from?.name||'—')}</td>
+                  <td>${esc(t.to?.name||'—')}</td>
+                  <td style="font-size:13px">${esc(t.fp_users?.name||'—')}</td>
+                  <td style="font-size:12px;color:var(--gray-600)">${esc(t.notes||'—')}</td>
+                </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function oTransfer(prefillItemId, prefillFromId) {
+  const itemOpts = _invItems.map(i=>`<option value="${i.id}" ${i.id===prefillItemId?'selected':''}>${esc(i.name)}${i.sku?' ('+esc(i.sku)+')':''}</option>`).join('');
+  const locOpts  = id => _invLocations.map(l=>`<option value="${l.id}" ${l.id===id?'selected':''}>${l.type==='van'?'🚐':'🏭'} ${esc(l.name)}</option>`).join('');
+  showModal(`
+    <div class="modal">
+      <div class="modal-header"><h2>Transfer Stock</h2><button class="modal-close" onclick="closeModal()">×</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Item *</label>
+          <select id="tf-item"><option value="">— Select Item —</option>${itemOpts}</select>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>From Location *</label>
+            <select id="tf-from"><option value="">— Select —</option>${locOpts(prefillFromId)}</select>
+          </div>
+          <div class="field"><label>To Location *</label>
+            <select id="tf-to"><option value="">— Select —</option>${locOpts()}</select>
+          </div>
+        </div>
+        <div class="field"><label>Quantity *</label>
+          <input id="tf-qty" type="number" min="0.01" step="any" placeholder="1">
+        </div>
+        <div class="field"><label>Notes</label>
+          <input id="tf-notes" placeholder="e.g. Loading van for job WO-0001">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-orange" onclick="svTransfer()">Transfer</button>
+      </div>
+    </div>`);
+}
+
+async function svTransfer() {
+  const itemId = document.getElementById('tf-item').value;
+  const fromId = document.getElementById('tf-from').value;
+  const toId   = document.getElementById('tf-to').value;
+  const qty    = parseFloat(document.getElementById('tf-qty').value);
+  if (!itemId||!fromId||!toId) { toast('Please fill all required fields','warn'); return; }
+  if (!qty||qty<=0)            { toast('Quantity must be greater than 0','warn'); return; }
+  if (fromId===toId)           { toast('From and To locations must be different','warn'); return; }
+
+  // Deduct from source, add to destination
+  const deduct = async () => {
+    const { data: src } = await DB.from('fp_inv_stock').select('*').eq('item_id',itemId).eq('location_id',fromId).single();
+    if (!src || src.quantity < qty) { toast('Not enough stock at source location','error'); return false; }
+    await DB.from('fp_inv_stock').update({quantity: src.quantity - qty, updated_at: new Date().toISOString()}).eq('id',src.id);
+    return true;
+  };
+  const add = async () => {
+    const { data: dst } = await DB.from('fp_inv_stock').select('*').eq('item_id',itemId).eq('location_id',toId).single();
+    if (dst) {
+      await DB.from('fp_inv_stock').update({quantity: dst.quantity + qty, updated_at: new Date().toISOString()}).eq('id',dst.id);
+    } else {
+      await DB.from('fp_inv_stock').insert({item_id:itemId, location_id:toId, quantity:qty});
+    }
+  };
+
+  if (!await deduct()) return;
+  await add();
+  await DB.from('fp_inv_transfers').insert({
+    item_id:fromId, from_location_id:fromId, to_location_id:toId,
+    item_id:itemId, quantity:qty,
+    notes: document.getElementById('tf-notes').value.trim()||null,
+    transferred_by: CU.id
+  });
+  toast('Transfer complete');
+  closeModal();
+  bInventory();
+}
+
+function invItemModal(item) {
+  const isEdit = !!item;
+  return `
+    <div class="modal">
+      <div class="modal-header"><h2>${isEdit?'Edit Item':'Add Item'}</h2><button class="modal-close" onclick="closeModal()">×</button></div>
+      <div class="modal-body">
+        <div class="field"><label>Name *</label><input id="if-name" value="${isEdit?esc(item.name):''}"></div>
+        <div class="field-row">
+          <div class="field"><label>SKU</label><input id="if-sku" value="${isEdit?esc(item.sku||''):''}"></div>
+          <div class="field"><label>Category</label><input id="if-cat" value="${isEdit?esc(item.category||''):''}" placeholder="e.g. Fittings"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Unit</label>
+            <select id="if-unit">${['Each','Box','Foot','Gallon','Bag','Roll'].map(u=>`<option ${(isEdit?item.unit:'')==='Each'&&u==='Each'?'selected':(isEdit&&item.unit===u?'selected':'')}>${u}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>Cost Price ($)</label><input id="if-cost" type="number" min="0" step="0.01" value="${isEdit?item.cost_price||'':''}" placeholder="0.00"></div>
+        </div>
+        <div class="field"><label>Sale Price ($)</label><input id="if-sale" type="number" min="0" step="0.01" value="${isEdit?item.sale_price||'':''}" placeholder="0.00"></div>
+      </div>
+      <div class="modal-footer">
+        ${isEdit?`<button class="btn btn-danger btn-sm" onclick="delInvItem('${item.id}')">🗑 Delete</button>`:''}
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-orange" onclick="svInvItem(${isEdit?`'${item.id}'`:null})">Save</button>
+      </div>
+    </div>`;
+}
+
+function oAddInvItem()      { showModal(invItemModal(null)); }
+function oEditInvItem(id)   { showModal(invItemModal(_invItems.find(i=>i.id===id))); }
+
+async function svInvItem(id) {
+  const name = document.getElementById('if-name').value.trim();
+  if (!name) { toast('Item name is required','warn'); return; }
+  const payload = {
+    name, sku: document.getElementById('if-sku').value.trim()||null,
+    category:   document.getElementById('if-cat').value.trim()||null,
+    unit:       document.getElementById('if-unit').value,
+    cost_price: parseFloat(document.getElementById('if-cost').value)||0,
+    sale_price: parseFloat(document.getElementById('if-sale').value)||0,
+  };
+  let error;
+  if (id) { ({error} = await DB.from('fp_inv_items').update(payload).eq('id',id)); }
+  else    { ({error} = await DB.from('fp_inv_items').insert(payload)); }
+  if (error) { toast('Save failed: '+error.message,'error'); return; }
+  toast(id?'Item updated':'Item added');
+  closeModal();
+  bInventory();
+}
+
+async function delInvItem(id) {
+  if (!confirm('Delete this item?')) return;
+  await DB.from('fp_inv_items').update({active:false}).eq('id',id);
+  toast('Item removed','warn');
+  closeModal();
+  bInventory();
+}
 function bTimeClock()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⏱️</div><p>Time Clock coming in Piece 9</p></div>'; }
 function bAdmin()      { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⚙️</div><p>Admin coming in Piece 10</p></div>'; }
 
