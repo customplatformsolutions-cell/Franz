@@ -162,8 +162,325 @@ a { text-decoration: none; color: inherit; }
   font-size: 12px;
 }
 
-/* ── App shell (shown after login) ─────────────────────────────────────── */
-#app { display: none; min-height: 100vh; }
+/* ── App shell ──────────────────────────────────────────────────────────── */
+#app {
+  display: none;
+  min-height: 100vh;
+  flex-direction: row;
+}
+#app.visible { display: flex; }
+
+/* Sidebar */
+#sidebar {
+  width: 240px;
+  min-height: 100vh;
+  background: var(--navy-dark);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 100;
+}
+.sidebar-logo {
+  padding: 20px 18px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.sidebar-nav {
+  flex: 1;
+  padding: 10px 0;
+  overflow-y: auto;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 18px;
+  color: rgba(255,255,255,0.72);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border-left: 3px solid transparent;
+}
+.nav-item:hover { background: rgba(255,255,255,0.07); color: var(--white); }
+.nav-item.active {
+  background: rgba(224,123,24,0.15);
+  color: var(--white);
+  border-left-color: var(--orange);
+}
+.nav-item .nav-icon { font-size: 17px; width: 22px; text-align: center; }
+.nav-item.locked { opacity: 0.45; cursor: not-allowed; }
+.nav-item.locked:hover { background: none; }
+.nav-badge {
+  margin-left: auto;
+  background: var(--orange);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+.nav-section-label {
+  padding: 16px 18px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255,255,255,0.3);
+}
+.sidebar-bottom {
+  padding: 14px 18px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.user-avatar {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: var(--orange);
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.user-info { overflow: hidden; }
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user-role {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  text-transform: capitalize;
+}
+.btn-logout {
+  width: 100%;
+  padding: 8px;
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.6);
+  font-size: 13px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-logout:hover { background: rgba(220,38,38,0.2); color: #FCA5A5; }
+
+/* Main content area */
+#main-wrap {
+  margin-left: 240px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* Top bar */
+#topbar {
+  height: 60px;
+  background: var(--white);
+  border-bottom: 1px solid var(--gray-200);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+#topbar-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--navy);
+  flex: 1;
+}
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--gray-100);
+  border: 1.5px solid var(--gray-200);
+  border-radius: 20px;
+  padding: 7px 14px;
+  width: 240px;
+  transition: border-color 0.2s;
+}
+.topbar-search:focus-within { border-color: var(--navy); }
+.topbar-search input {
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: var(--gray-800);
+  width: 100%;
+}
+.topbar-search input::placeholder { color: var(--gray-400); }
+
+/* Page content */
+#page-content {
+  flex: 1;
+  padding: 28px 28px;
+  background: var(--gray-100);
+}
+
+/* Common UI components */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.page-header h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.btn {
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s, transform 0.1s;
+}
+.btn:active { transform: scale(0.98); }
+.btn-primary { background: var(--navy); color: var(--white); }
+.btn-primary:hover { background: var(--navy-light); }
+.btn-orange { background: var(--orange); color: var(--white); }
+.btn-orange:hover { background: var(--orange-dark); }
+.btn-ghost { background: var(--white); color: var(--navy); border: 1.5px solid var(--gray-200); }
+.btn-ghost:hover { border-color: var(--navy); }
+.btn-danger { background: #FEE2E2; color: var(--error); }
+.btn-danger:hover { background: var(--error); color: white; }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+
+.card {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.stat-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  border-left: 4px solid var(--navy);
+}
+.stat-card.orange { border-left-color: var(--orange); }
+.stat-card.green  { border-left-color: var(--success); }
+.stat-card.gray   { border-left-color: var(--gray-400); }
+.stat-label { font-size: 12px; font-weight: 600; color: var(--gray-600); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.stat-value { font-size: 28px; font-weight: 800; color: var(--navy); }
+.stat-sub   { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+thead th { text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--gray-600); border-bottom: 2px solid var(--gray-200); background: var(--gray-100); }
+tbody td { padding: 12px 14px; border-bottom: 1px solid var(--gray-200); color: var(--gray-800); vertical-align: middle; }
+tbody tr:hover { background: var(--light-blue); }
+tbody tr:last-child td { border-bottom: none; }
+
+/* Status badges */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.badge-blue    { background: #DBEAFE; color: #1D4ED8; }
+.badge-orange  { background: #FEF3C7; color: #92400E; }
+.badge-green   { background: #DCFCE7; color: #166534; }
+.badge-red     { background: #FEE2E2; color: #991B1B; }
+.badge-gray    { background: var(--gray-200); color: var(--gray-600); }
+
+/* Modal */
+#modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(10,20,40,0.55);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+#modal-overlay.open { display: flex; }
+.modal {
+  background: var(--white);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 2px solid var(--light-blue);
+}
+.modal-header h2 { font-size: 17px; font-weight: 700; color: var(--navy); }
+.modal-close {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  font-size: 18px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-close:hover { background: var(--gray-200); }
+.modal-body { padding: 20px 24px; }
+.modal-footer { padding: 16px 24px; border-top: 1px solid var(--gray-200); display: flex; gap: 10px; justify-content: flex-end; }
+
+/* Forms inside modals */
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 12px; font-weight: 600; color: var(--navy); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px; }
+.field input, .field select, .field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid var(--gray-200);
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: var(--gray-800);
+  background: var(--white);
+  transition: border-color 0.2s;
+}
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--navy); }
+.field textarea { resize: vertical; min-height: 80px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field-row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--gray-400);
+}
+.empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state p { font-size: 15px; }
 
 /* ── Toast ──────────────────────────────────────────────────────────────── */
 #toast-wrap {
@@ -239,8 +556,89 @@ a { text-decoration: none; color: inherit; }
   </div>
 </div>
 
-<!-- ── App (populated in future chunks) ──────────────────────────────── -->
-<div id="app"></div>
+<!-- ── App Shell ─────────────────────────────────────────────────────── -->
+<div id="app">
+  <!-- Sidebar -->
+  <nav id="sidebar">
+    <div class="sidebar-logo">
+      <svg width="180" height="54" viewBox="0 0 220 70" xmlns="http://www.w3.org/2000/svg">
+        <path d="M33,4 C33,4 10,28 10,44 C10,57.25 20.75,68 34,68 C47.25,68 58,57.25 58,44 C58,28 33,4 33,4 Z" fill="white" opacity="0.9"/>
+        <rect x="20" y="36" width="26" height="6" rx="3" fill="#1B3A6B"/>
+        <rect x="30" y="42" width="6" height="9" rx="2" fill="#1B3A6B"/>
+        <circle cx="33" cy="55" r="2.5" fill="#1B3A6B" opacity="0.7"/>
+        <rect x="38" y="33" width="5" height="12" rx="2" fill="#1B3A6B"/>
+        <text x="66" y="34" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="24" fill="white" letter-spacing="1">FRANZ</text>
+        <text x="67" y="50" font-family="Arial, sans-serif" font-weight="700" font-size="10" fill="#E07B18" letter-spacing="1.5">PLUMBING AND PIPING</text>
+      </svg>
+    </div>
+
+    <div class="sidebar-nav" id="sidebar-nav">
+      <div class="nav-section-label">Main</div>
+      <div class="nav-item active" onclick="showPage('dashboard')" data-page="dashboard">
+        <span class="nav-icon">🏠</span> Dashboard
+      </div>
+      <div class="nav-item" onclick="showPage('customers')" data-page="customers">
+        <span class="nav-icon">👥</span> Customers
+      </div>
+
+      <div class="nav-section-label">Field Service</div>
+      <div class="nav-item" onclick="showPage('estimates')" data-page="estimates">
+        <span class="nav-icon">📋</span> Estimates
+      </div>
+      <div class="nav-item" onclick="showPage('workorders')" data-page="workorders">
+        <span class="nav-icon">🔧</span> Work Orders
+      </div>
+      <div class="nav-item" onclick="showPage('dispatch')" data-page="dispatch">
+        <span class="nav-icon">📅</span> Dispatch
+      </div>
+
+      <div class="nav-section-label">Operations</div>
+      <div class="nav-item" onclick="showPage('inventory')" data-page="inventory">
+        <span class="nav-icon">📦</span> Inventory
+      </div>
+      <div class="nav-item" onclick="showPage('timeclock')" data-page="timeclock">
+        <span class="nav-icon">⏱️</span> Time Clock
+      </div>
+      <div class="nav-item locked" title="Coming soon">
+        <span class="nav-icon">☎️</span> Phone
+        <span class="nav-badge">Soon</span>
+      </div>
+
+      <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
+      <div class="nav-item" onclick="showPage('admin')" data-page="admin" id="nav-admin" style="display:none">
+        <span class="nav-icon">⚙️</span> Admin
+      </div>
+    </div>
+
+    <div class="sidebar-bottom">
+      <div class="sidebar-user">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div class="user-info">
+          <div class="user-name" id="user-name">—</div>
+          <div class="user-role" id="user-role">—</div>
+        </div>
+      </div>
+      <button class="btn-logout" onclick="doLogout()">Sign Out</button>
+    </div>
+  </nav>
+
+  <!-- Main wrap -->
+  <div id="main-wrap">
+    <!-- Top bar -->
+    <div id="topbar">
+      <div id="topbar-title">Dashboard</div>
+      <div class="topbar-search">
+        <span>🔍</span>
+        <input type="text" id="global-search" placeholder="Search customers, jobs…" oninput="globalSearch(this.value)">
+      </div>
+    </div>
+    <!-- Page content -->
+    <div id="page-content"></div>
+  </div>
+</div>
+
+<!-- ── Modal ─────────────────────────────────────────────────────────────── -->
+<div id="modal-overlay" onclick="if(event.target===this)closeModal()"></div>
 
 <!-- ── Toast container ───────────────────────────────────────────────── -->
 <div id="toast-wrap"></div>
@@ -330,24 +728,76 @@ document.getElementById('li-email').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('li-pass').focus();
 });
 
+// ── Modal helpers ─────────────────────────────────────────────────────────
+function showModal(html) {
+  const el = document.getElementById('modal-overlay');
+  el.innerHTML = html;
+  el.classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+// ── Page router ───────────────────────────────────────────────────────────
+let _currentPage = 'dashboard';
+
+function showPage(page) {
+  _currentPage = page;
+  // Update nav active state
+  document.querySelectorAll('.nav-item[data-page]').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  // Update topbar title
+  const titles = {
+    dashboard: 'Dashboard', customers: 'Customers',
+    estimates: 'Estimates', workorders: 'Work Orders',
+    dispatch: 'Dispatch', inventory: 'Inventory',
+    timeclock: 'Time Clock', admin: 'Admin'
+  };
+  document.getElementById('topbar-title').textContent = titles[page] || page;
+  // Render page
+  const pc = document.getElementById('page-content');
+  pc.innerHTML = `<div class="empty-state"><div class="empty-icon">🔧</div><p>${titles[page] || page} — coming soon</p></div>`;
+  if (page === 'dashboard')  bDashboard();
+  if (page === 'customers')  bCustomers();
+  if (page === 'estimates')  bEstimates();
+  if (page === 'workorders') bWorkOrders();
+  if (page === 'dispatch')   bDispatch();
+  if (page === 'inventory')  bInventory();
+  if (page === 'timeclock')  bTimeClock();
+  if (page === 'admin')      bAdmin();
+}
+
+function globalSearch(q) { /* wired up in later pieces */ }
+
+// Stub page builders — replaced piece by piece
+function bDashboard()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">🏠</div><p>Dashboard coming in Piece 3</p></div>'; }
+function bCustomers()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">👥</div><p>Customers coming in Piece 4</p></div>'; }
+function bEstimates()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>Estimates coming in Piece 5</p></div>'; }
+function bWorkOrders() { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">🔧</div><p>Work Orders coming in Piece 6</p></div>'; }
+function bDispatch()   { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><p>Dispatch coming in Piece 7</p></div>'; }
+function bInventory()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div><p>Inventory coming in Piece 8</p></div>'; }
+function bTimeClock()  { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⏱️</div><p>Time Clock coming in Piece 9</p></div>'; }
+function bAdmin()      { document.getElementById('page-content').innerHTML = '<div class="empty-state"><div class="empty-icon">⚙️</div><p>Admin coming in Piece 10</p></div>'; }
+
 // ── Boot ──────────────────────────────────────────────────────────────────
 function startApp() {
   document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-  // App shell will be built in the next chunk
-  document.getElementById('app').innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;color:#1B3A6B;">
-      <svg width="80" height="80" viewBox="0 0 220 70" xmlns="http://www.w3.org/2000/svg">
-        <path d="M33,4 C33,4 10,28 10,44 C10,57.25 20.75,68 34,68 C47.25,68 58,57.25 58,44 C58,28 33,4 33,4 Z" fill="#1B3A6B"/>
-        <rect x="20" y="36" width="26" height="6" rx="3" fill="white"/>
-        <rect x="30" y="42" width="6" height="9" rx="2" fill="white"/>
-        <circle cx="33" cy="55" r="2.5" fill="white" opacity="0.8"/>
-        <rect x="38" y="33" width="5" height="12" rx="2" fill="white"/>
-      </svg>
-      <div style="font-size:22px;font-weight:700;">Welcome, ${esc(CU.name)} ✓</div>
-      <div style="font-size:14px;color:#5A6880;">App shell coming in the next chunk.</div>
-      <button onclick="doLogout()" style="margin-top:12px;padding:10px 24px;background:#E07B18;color:white;border-radius:8px;font-weight:600;border:none;cursor:pointer;">Sign Out</button>
-    </div>`;
+  document.getElementById('app').classList.add('visible');
+
+  // Populate user info in sidebar
+  const initials = CU.name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+  document.getElementById('user-avatar').textContent = initials;
+  document.getElementById('user-name').textContent   = CU.name;
+  document.getElementById('user-role').textContent   = CU.role;
+
+  // Show admin nav if admin
+  if (CU.role === 'admin') {
+    document.getElementById('nav-admin').style.display = 'flex';
+    document.getElementById('nav-admin-label').style.display = 'block';
+  }
+
+  showPage('dashboard');
   toast(`Welcome back, ${CU.name}!`);
 }
 
