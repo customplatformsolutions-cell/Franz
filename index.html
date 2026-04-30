@@ -599,9 +599,8 @@ tbody tr:last-child td { border-bottom: none; }
       <div class="nav-item" onclick="showPage('timeclock')" data-page="timeclock">
         <span class="nav-icon">⏱️</span> Time Clock
       </div>
-      <div class="nav-item locked" title="Coming soon">
+      <div class="nav-item" onclick="showPage('phone')" data-page="phone">
         <span class="nav-icon">☎️</span> Phone
-        <span class="nav-badge">Soon</span>
       </div>
 
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
@@ -752,7 +751,7 @@ function showPage(page) {
     dashboard: 'Dashboard', customers: 'Customers',
     estimates: 'Estimates', workorders: 'Work Orders',
     dispatch: 'Dispatch', inventory: 'Inventory',
-    timeclock: 'Time Clock', admin: 'Admin'
+    timeclock: 'Time Clock', admin: 'Admin', phone: 'Phone'
   };
   document.getElementById('topbar-title').textContent = titles[page] || page;
   // Render page
@@ -766,6 +765,7 @@ function showPage(page) {
   if (page === 'inventory')  bInventory();
   if (page === 'timeclock')  bTimeClock();
   if (page === 'admin')      bAdmin();
+  if (page === 'phone')      bPhone();
 }
 
 function globalSearch(q) { /* wired up in later pieces */ }
